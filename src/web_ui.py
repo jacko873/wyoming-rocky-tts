@@ -283,22 +283,64 @@ async def home():
         </div>
     </div>
     
-    <div class="card">
-        <h2>🎤 Test Text Processing</h2>
+    <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px;">
+        <h2 style="border-bottom-color: white; color: white;">🎤 Test Rocky TTS - See & Hear the Transformation</h2>
         <form id="test-form">
-            <textarea name="text" placeholder="Enter text to test..." rows="3">The temperature is 72°F with 30% humidity at 3:45 PM.</textarea>
-            <div style="margin: 10px 0;">
-                <label style="display: flex; align-items: center; gap: 5px;">
+            <textarea name="text" placeholder="Enter any text to transform into Rocky's speaking style..." rows="4" style="font-size: 16px; width: 100%; padding: 12px;">The temperature is 72°F and the lights are turned on. Would you like me to adjust anything?</textarea>
+            
+            <div style="margin: 15px 0; display: flex; gap: 20px; align-items: center;">
+                <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
                     <input type="checkbox" name="use_style" checked>
-                    Apply Rocky Style
+                    <span>Apply Rocky Style</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 5px;">
+                    Voice Speed:
+                    <select name="voice_speed" style="padding: 5px; border-radius: 4px;">
+                        <option value="120">Slow</option>
+                        <option value="150" selected>Normal</option>
+                        <option value="180">Fast</option>
+                    </select>
                 </label>
             </div>
-            <button type="submit">🔍 Process Text</button>
-            <button type="button" onclick="synthesizeTest()">🔊 Generate Audio</button>
-            <button type="button" onclick="document.querySelector('[name=text]').value=''" class="secondary">Clear</button>
+            
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button type="submit" style="background: white; color: #667eea; font-weight: bold;">🎯 Transform Text</button>
+                <button type="button" onclick="synthesizeTest()" style="background: white; color: #667eea; font-weight: bold;">🔊 Generate & Play Audio</button>
+                <button type="button" onclick="clearTest()" class="secondary">🗑️ Clear All</button>
+            </div>
         </form>
-        <div id="pipeline-result"></div>
-        <audio id="audio-player" controls style="display:none;"></audio>
+        
+        <div id="pipeline-result" style="margin-top: 20px;"></div>
+        
+        <div id="audio-section" style="display: none; margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.1); border-radius: 8px;">
+            <h4 style="margin-top: 0; color: white;">🔊 Audio Output:</h4>
+            <audio id="audio-player" controls style="width: 100%; margin: 10px 0;"></audio>
+            <div id="audio-status" style="margin-top: 10px; font-size: 14px;"></div>
+        </div>
+        
+        <div style="margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.3);">
+            <h4 style="color: white;">📚 Quick Examples (click to try):</h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                <button onclick="setExample('I don\\'t understand what you mean')" class="example-btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid white; padding: 10px; border-radius: 4px; cursor: pointer;">
+                    "I don't understand"
+                </button>
+                <button onclick="setExample('The lights have been turned on successfully')" class="example-btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid white; padding: 10px; border-radius: 4px; cursor: pointer;">
+                    "Lights turned on"
+                </button>
+                <button onclick="setExample('That\\'s absolutely amazing!')" class="example-btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid white; padding: 10px; border-radius: 4px; cursor: pointer;">
+                    "That's amazing!"
+                </button>
+                <button onclick="setExample('What do you want me to do?')" class="example-btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid white; padding: 10px; border-radius: 4px; cursor: pointer;">
+                    "What do you want?"
+                </button>
+                <button onclick="setExample('Unable to connect to the device')" class="example-btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid white; padding: 10px; border-radius: 4px; cursor: pointer;">
+                    "Can't connect"
+                </button>
+                <button onclick="setExample('Task completed successfully')" class="example-btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid white; padding: 10px; border-radius: 4px; cursor: pointer;">
+                    "Task done"
+                </button>
+            </div>
+        </div>
     </div>
     
     <div class="grid">
@@ -471,6 +513,18 @@ async def home():
             window.open('/api/config/download', '_blank');
         }
         
+        function setExample(text) {
+            document.querySelector('[name="text"]').value = text;
+            document.getElementById('test-form').dispatchEvent(new Event('submit'));
+        }
+        
+        function clearTest() {
+            document.querySelector('[name="text"]').value = '';
+            document.getElementById('pipeline-result').innerHTML = '';
+            document.getElementById('audio-section').style.display = 'none';
+            document.getElementById('audio-player').pause();
+        }
+        
         document.getElementById('test-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             if (isProcessing) return;
@@ -478,7 +532,7 @@ async def home():
             isProcessing = true;
             const button = e.target.querySelector('button[type="submit"]');
             button.disabled = true;
-            button.innerHTML = '🔍 Processing... <div class="spinner" style="display: inline-block;"></div>';
+            button.innerHTML = '🎯 Transforming... <div class="spinner" style="display: inline-block;"></div>';
             
             try {
                 const formData = new FormData(e.target);
@@ -488,17 +542,35 @@ async def home():
                 });
                 const result = await resp.json();
                 
-                let html = '<h3>Text Processing Pipeline</h3>';
-                html += '<div class="pipeline-stage"><strong>Original Text:</strong>' + result.original + '</div>';
-                html += '<div class="pipeline-stage"><strong>After Rocky Style:</strong>' + result.styled + '</div>';
-                html += '<div class="pipeline-stage"><strong>After Normalization:</strong>' + result.normalized + '</div>';
-                html += '<div class="pipeline-stage"><strong>Cache Key:</strong><code>' + result.cache_key.substring(0, 16) + '...</code></div>';
+                let html = '<div style="background: white; color: #333; padding: 20px; border-radius: 8px; margin-top: 10px;">';
+                html += '<h3 style="margin-top: 0; color: #667eea;">📝 Text Transformation Results:</h3>';
+                html += '<div class="pipeline-stage" style="margin: 15px 0; padding: 15px; background: #f0f0f0; border-left: 3px solid #667eea;">';
+                html += '<strong style="color: #667eea; display: block; margin-bottom: 5px;">Original Text:</strong>';
+                html += '<div style="font-size: 16px; line-height: 1.5;">' + result.original + '</div>';
+                html += '</div>';
+                html += '<div class="pipeline-stage" style="margin: 15px 0; padding: 15px; background: #f0f0f0; border-left: 3px solid #764ba2;">';
+                html += '<strong style="color: #764ba2; display: block; margin-bottom: 5px;">🗿 Rocky Style:</strong>';
+                html += '<div style="font-size: 18px; line-height: 1.5; font-weight: bold;">' + result.styled + '</div>';
+                html += '</div>';
+                html += '<div class="pipeline-stage" style="margin: 15px 0; padding: 15px; background: #f0f0f0; border-left: 3px solid #667eea;">';
+                html += '<strong style="color: #667eea; display: block; margin-bottom: 5px;">🔧 Normalized for Speech:</strong>';
+                html += '<div style="font-size: 16px; line-height: 1.5;">' + result.normalized + '</div>';
+                html += '</div>';
+                html += '<div style="margin-top: 15px; padding: 10px; background: #e8f4fd; border-radius: 4px;">';
+                html += '<small>Cache Key: <code>' + result.cache_key.substring(0, 16) + '...</code></small>';
+                html += '</div>';
+                html += '</div>';
                 
                 document.getElementById('pipeline-result').innerHTML = html;
+                
+                // Auto-generate audio if checkbox is checked
+                if (document.querySelector('[name="use_style"]').checked) {
+                    setTimeout(() => synthesizeTest(), 500);
+                }
             } finally {
                 isProcessing = false;
                 button.disabled = false;
-                button.innerHTML = '🔍 Process Text';
+                button.innerHTML = '🎯 Transform Text';
             }
         });
         
@@ -526,24 +598,36 @@ async def home():
         async function synthesizeTest() {
             if (isProcessing) return;
             
-            const text = document.querySelector('[name="text"]').value;
+            // Get the styled text if available, otherwise use the input text
+            const styledTextElement = document.querySelector('.pipeline-stage:nth-child(2) div:last-child');
+            const text = styledTextElement ? styledTextElement.textContent : document.querySelector('[name="text"]').value;
             const useStyle = document.querySelector('[name="use_style"]').checked;
+            const voiceSpeed = document.querySelector('[name="voice_speed"]').value;
             
             if (!text) {
-                alert('Please enter some text to synthesize');
+                alert('Please enter and transform some text first');
                 return;
             }
             
             isProcessing = true;
             const button = document.querySelector('button[onclick="synthesizeTest()"]');
             button.disabled = true;
-            button.innerHTML = '🔊 Generating... <div class="spinner" style="display: inline-block;"></div>';
+            button.innerHTML = '🔊 Generating Audio... <div class="spinner" style="display: inline-block;"></div>';
+            
+            // Show audio section
+            const audioSection = document.getElementById('audio-section');
+            audioSection.style.display = 'block';
+            document.getElementById('audio-status').innerHTML = '⏳ Generating audio with Rocky voice...';
             
             try {
                 const resp = await fetch('/api/synthesize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text, use_style: useStyle })
+                    body: JSON.stringify({ 
+                        text: text, 
+                        use_style: useStyle,
+                        voice_speed: voiceSpeed
+                    })
                 });
                 
                 if (resp.ok) {
@@ -552,14 +636,22 @@ async def home():
                     const player = document.getElementById('audio-player');
                     player.src = url;
                     player.style.display = 'block';
-                    player.play();
+                    
+                    document.getElementById('audio-status').innerHTML = '✅ Audio generated! Click play to hear Rocky speak.';
+                    
+                    // Auto-play
+                    player.play().catch(e => {
+                        document.getElementById('audio-status').innerHTML = '✅ Audio ready! Click the play button to hear it.';
+                    });
                 } else {
-                    alert('Error generating audio. Check if the TTS service is running.');
+                    document.getElementById('audio-status').innerHTML = '❌ Error generating audio. Make sure the TTS service is running.';
                 }
+            } catch(e) {
+                document.getElementById('audio-status').innerHTML = '❌ Failed to generate audio: ' + e;
             } finally {
                 isProcessing = false;
                 button.disabled = false;
-                button.innerHTML = '🔊 Generate Audio';
+                button.innerHTML = '🔊 Generate & Play Audio';
             }
         }
         
@@ -712,44 +804,112 @@ async def synthesize(request: Request):
     data = await request.json()
     text = data.get("text", "")
     use_style = data.get("use_style", True)
+    voice_speed = data.get("voice_speed", "150")
     
     if not text:
         raise HTTPException(status_code=400, detail="No text provided")
     
-    # Use the test command if available
+    # For testing, use espeak-ng to generate audio
+    # In production, this would use the actual YourTTS model
     with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+        tmp_path = tmp.name
+        
         try:
-            style_arg = "--style rules" if use_style else "--style off"
-            result = subprocess.run(
-                f'/usr/local/bin/test-rocky-tts "{text}" {style_arg}',
-                shell=True,
-                capture_output=True,
-                timeout=30
-            )
+            # First try the actual test-rocky-tts command if available
+            if Path('/usr/local/bin/test-rocky-tts').exists():
+                style_arg = "--style rules" if use_style else "--style off"
+                result = subprocess.run(
+                    f'/usr/local/bin/test-rocky-tts "{text}" {style_arg} --output {tmp_path}',
+                    shell=True,
+                    capture_output=True,
+                    timeout=30
+                )
+                
+                if result.returncode == 0 and Path(tmp_path).exists():
+                    with open(tmp_path, 'rb') as f:
+                        audio_data = f.read()
+                    
+                    return StreamingResponse(
+                        io.BytesIO(audio_data),
+                        media_type="audio/wav",
+                        headers={"Content-Disposition": "attachment; filename=rocky.wav"}
+                    )
             
-            # Find the generated WAV file
-            wav_files = list(Path("/tmp").glob("rocky_test_*.wav"))
-            if wav_files:
-                wav_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-                with open(wav_files[0], 'rb') as f:
-                    audio_data = f.read()
+            # Fallback to espeak-ng for testing
+            # Check if espeak-ng is available
+            espeak_cmd = None
+            try:
+                subprocess.run(['espeak-ng', '--version'], capture_output=True, check=True)
+                espeak_cmd = 'espeak-ng'
+            except:
+                try:
+                    subprocess.run(['espeak', '--version'], capture_output=True, check=True)
+                    espeak_cmd = 'espeak'
+                except:
+                    pass
+            
+            if espeak_cmd:
+                # Generate with espeak using Rocky-like voice settings
+                # Slower speed and lower pitch for Rocky effect
+                result = subprocess.run(
+                    [espeak_cmd, '-w', tmp_path, '-s', voice_speed, '-p', '30', '-v', 'en+m3', text],
+                    capture_output=True,
+                    timeout=10
+                )
                 
-                # Clean up
-                for wav in wav_files:
-                    try:
-                        wav.unlink()
-                    except:
-                        pass
+                if result.returncode == 0 and Path(tmp_path).exists():
+                    with open(tmp_path, 'rb') as f:
+                        audio_data = f.read()
+                    
+                    return StreamingResponse(
+                        io.BytesIO(audio_data),
+                        media_type="audio/wav",
+                        headers={"Content-Disposition": "attachment; filename=rocky_test.wav"}
+                    )
+            else:
+                # No TTS engine available - generate a simple beep or placeholder
+                # This creates a very basic sine wave as a placeholder
+                import struct
+                import math
                 
+                sample_rate = 22050
+                duration = 2  # seconds
+                frequency = 440  # Hz (A4 note)
+                
+                # Generate sine wave
+                samples = []
+                for i in range(int(sample_rate * duration)):
+                    t = float(i) / sample_rate
+                    value = int(32767 * math.sin(2 * math.pi * frequency * t))
+                    samples.append(struct.pack('<h', value))
+                
+                # Create WAV header
+                wav_header = struct.pack('<4sI4s4sIHHIIHH4sI',
+                    b'RIFF', 36 + len(samples) * 2, b'WAVE', b'fmt ', 16, 1, 1,
+                    sample_rate, sample_rate * 2, 2, 16, b'data', len(samples) * 2)
+                
+                audio_data = wav_header + b''.join(samples)
+                
+                # Add a note in the response header
                 return StreamingResponse(
                     io.BytesIO(audio_data),
                     media_type="audio/wav",
-                    headers={"Content-Disposition": "attachment; filename=test.wav"}
+                    headers={
+                        "Content-Disposition": "attachment; filename=placeholder.wav",
+                        "X-Audio-Note": "No TTS engine available - placeholder audio"
+                    }
                 )
+                
         except Exception as e:
             logger.error(f"Synthesis failed: {e}")
-    
-    raise HTTPException(status_code=500, detail="Synthesis failed")
+            raise HTTPException(status_code=500, detail=f"Synthesis failed: {str(e)}")
+        finally:
+            # Clean up temp file
+            try:
+                if Path(tmp_path).exists():
+                    Path(tmp_path).unlink()
+            except:
+                pass
 
 def main():
     import argparse
