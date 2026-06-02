@@ -155,7 +155,7 @@ class RockyWyomingHandler:
                         description="Rocky-style YourTTS voice",
                         attribution=Attribution(
                             name="Rocky TTS",
-                            url="https://github.com/yourusername/wyoming-rocky-tts"
+                            url="https://github.com/jacko873/wyoming-rocky-tts"
                         ),
                         installed=True,
                         voices=[
@@ -164,7 +164,7 @@ class RockyWyomingHandler:
                                 description="Rocky alien helper voice",
                                 attribution=Attribution(
                                     name="Rocky",
-                                    url="https://github.com/yourusername/wyoming-rocky-tts"
+                                    url="https://github.com/jacko873/wyoming-rocky-tts"
                                 ),
                                 installed=True,
                                 languages=["en"]

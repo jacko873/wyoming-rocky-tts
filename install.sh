@@ -24,7 +24,7 @@ if ! grep -q "^ID=debian" /etc/os-release || ! grep -q "VERSION_ID=\"12\"" /etc/
 fi
 
 # Configuration
-GITHUB_REPO="${GITHUB_REPO:-https://github.com/yourusername/wyoming-rocky-tts.git}"
+GITHUB_REPO="${GITHUB_REPO:-https://github.com/jacko873/wyoming-rocky-tts.git}"
 ROCKY_USER="rocky"
 APP_DIR="/home/${ROCKY_USER}/wyoming-rocky-tts"
 DATA_DIR="/home/${ROCKY_USER}/.rocky_tts"
