@@ -1,0 +1,51 @@
+# Pronunciation Overrides
+# Format: "original text": "spoken as"
+
+# Names
+Aj: Ajay
+
+# Acronyms and Abbreviations
+HA: Home Assistant
+HACS: H A C S
+LXC: L X C
+VM: V M
+API: A P I
+UI: U I
+URL: U R L
+IP: I P
+DNS: D N S
+SSH: S S H
+HTTP: H T T P
+HTTPS: H T T P S
+MQTT: M Q T T
+YAML: Yam L
+JSON: Jay Son
+
+# Technology Terms
+Proxmox: Prox mox
+Docker: Docker
+Kubernetes: Koo ber net eez
+nginx: Engine X
+PostgreSQL: Post gres Q L
+MySQL: My S Q L
+Redis: Red iss
+ElasticSearch: Elastic Search
+
+# Environmental/Sensor Terms
+"PM2.5": P M two point five
+"PM10": P M ten
+AQI: A Q I
+VOC: V O C
+CO2: C O two
+UV: U V
+
+# Common Media Player Names (adjust to your setup)
+media_player.living_room: living room speaker
+media_player.bedroom: bedroom speaker
+media_player.kitchen: kitchen speaker
+
+# Unit Symbols
+"° F": degrees fahrenheit
+"°F": degrees fahrenheit
+"° C": degrees celsius  
+"°C": degrees celsius

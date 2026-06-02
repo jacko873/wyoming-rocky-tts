@@ -120,9 +120,10 @@ su - "$ROCKY_USER" -c "cd $APP_DIR && $VENV_DIR/bin/pip install -r requirements.
 # Download Rocky reference voice if not present
 if [ ! -f "${DATA_DIR}/rocky_reference.wav" ]; then
     echo "Downloading Rocky reference voice..."
-    wget -q -O "${DATA_DIR}/rocky_reference.wav" \
-        "https://github.com/gist-rs/book/raw/refs/heads/main/examples/r1-lite/rocky_reference.wav" \
+    wget -O "${DATA_DIR}/rocky_reference.wav" \
+        "https://pedramamini.com/dropbox/rocky_training_audio_scrubbed.wav" \
         || echo "Warning: Could not download reference voice. Please provide your own."
+    echo "Rocky voice downloaded ($(du -h ${DATA_DIR}/rocky_reference.wav | cut -f1))"
 fi
 
 # Copy configuration templates if needed

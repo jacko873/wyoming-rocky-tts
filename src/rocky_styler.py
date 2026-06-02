@@ -60,7 +60,7 @@ class RockyStyler:
             "cannot find": "no find",
             "unable to find": "no find",
             "unable to locate": "no find",
-            "not found": "no found",
+            "not found": "no find",
             
             # Understanding
             "i couldn't understand": "I no understand. Try again, question",
@@ -75,15 +75,14 @@ class RockyStyler:
             "that's terrible": "That bad bad bad",
             "that's scary": "That scary scary scary",
             "i'm happy": "I happy happy happy",
-            "i'm sorry": "I sorry sorry",
-            "sorry": "Sorry sorry",
+            "sorry": "Sorry sorry sorry",
             
             # Common Home Assistant responses
             "the lights are": "Lights",
             "the light is": "Light",
             "has been turned": "now",
             "has been set": "now set",
-            "successfully": "good good",
+            "successfully": "good good good ",
             "failed to": "no can",
             "unable to": "no can",
             

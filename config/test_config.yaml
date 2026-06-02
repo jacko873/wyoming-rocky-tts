@@ -1,0 +1,26 @@
+# Test Configuration for Local Development
+wyoming_host: 0.0.0.0
+wyoming_port: 10202
+web_host: 0.0.0.0
+web_port: 8088
+
+# Paths (relative to project root)
+speaker_wav: data/rocky_reference.wav
+data_dir: data
+cache_dir: cache
+
+# TTS Settings
+model_name: tts_models/multilingual/multi-dataset/your_tts
+cache_enabled: true
+warmup_text: System ready
+style_mode: rules
+
+# Audio Settings
+audio_rate: 22050
+ffmpeg_filters: highpass=f=80,lowpass=f=8000,compand,loudnorm=I=-16:TP=-1.5:LRA=11
+
+# Processing
+max_text_length: 500
+normalize_numbers: true
+normalize_units: true
+log_level: INFO
