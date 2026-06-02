@@ -637,14 +637,29 @@ async def home():
                     player.src = url;
                     player.style.display = 'block';
                     
-                    document.getElementById('audio-status').innerHTML = '✅ Audio generated! Click play to hear Rocky speak.';
+                    // Check if using actual YourTTS
+                    const ttsEngine = resp.headers.get('X-TTS-Engine');
+                    if (ttsEngine && ttsEngine.includes('YourTTS')) {
+                        document.getElementById('audio-status').innerHTML = '✅ Audio generated with YourTTS Rocky voice! Click play to hear.';
+                    } else {
+                        document.getElementById('audio-status').innerHTML = '✅ Audio ready! Click play to hear Rocky speak.';
+                    }
                     
                     // Auto-play
                     player.play().catch(e => {
-                        document.getElementById('audio-status').innerHTML = '✅ Audio ready! Click the play button to hear it.';
+                        document.getElementById('audio-status').innerHTML += ' (Click the play button if auto-play was blocked)';
                     });
                 } else {
-                    document.getElementById('audio-status').innerHTML = '❌ Error generating audio. Make sure the TTS service is running.';
+                    const errorText = await resp.text();
+                    let errorMsg = '❌ ';
+                    if (resp.status === 503) {
+                        errorMsg += 'YourTTS model not loaded. Please ensure Wyoming Rocky TTS service is running.';
+                    } else if (resp.status === 500) {
+                        errorMsg += 'TTS generation failed. Check the service logs for details.';
+                    } else {
+                        errorMsg += 'Error generating audio: ' + errorText;
+                    }
+                    document.getElementById('audio-status').innerHTML = errorMsg;
                 }
             } catch(e) {
                 document.getElementById('audio-status').innerHTML = '❌ Failed to generate audio: ' + e;
@@ -809,107 +824,88 @@ async def synthesize(request: Request):
     if not text:
         raise HTTPException(status_code=400, detail="No text provided")
     
-    # For testing, use espeak-ng to generate audio
-    # In production, this would use the actual YourTTS model
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-        tmp_path = tmp.name
+    # Use the actual Rocky TTS with YourTTS model
+    try:
+        # Import the actual TTS components
+        from src.wyoming_server import RockyTTS
+        from src.config import Config as TtsConfig
         
-        try:
-            # First try the actual test-rocky-tts command if available
-            if Path('/usr/local/bin/test-rocky-tts').exists():
-                style_arg = "--style rules" if use_style else "--style off"
-                result = subprocess.run(
-                    f'/usr/local/bin/test-rocky-tts "{text}" {style_arg} --output {tmp_path}',
-                    shell=True,
-                    capture_output=True,
-                    timeout=30
-                )
+        # Load configuration
+        config_path = Path(config.data_dir) / "config.yaml"
+        tts_config = TtsConfig.load(config_path)
+        
+        # Override style mode based on request
+        tts_config.style_mode = "rules" if use_style else "off"
+        
+        # Adjust audio rate based on voice speed
+        speed_map = {
+            "120": 20000,  # Slow
+            "150": 22050,  # Normal  
+            "180": 24000   # Fast
+        }
+        tts_config.audio_rate = speed_map.get(voice_speed, 22050)
+        
+        # Create TTS instance (this will load YourTTS model)
+        tts = RockyTTS(tts_config)
+        
+        # Generate audio using YourTTS with Rocky voice
+        audio_data = tts.synthesize(text, use_cache=True)
+        
+        return StreamingResponse(
+            io.BytesIO(audio_data),
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": "attachment; filename=rocky_yourtts.wav",
+                "X-TTS-Engine": "YourTTS with Rocky voice"
+            }
+        )
+        
+    except ImportError as e:
+        # TTS modules not fully installed, try the test command
+        logger.warning(f"TTS modules not available: {e}")
+        
+        # Try using the test-rocky-tts command if installed
+        if Path('/usr/local/bin/test-rocky-tts').exists():
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                tmp_path = tmp.name
                 
-                if result.returncode == 0 and Path(tmp_path).exists():
-                    with open(tmp_path, 'rb') as f:
-                        audio_data = f.read()
-                    
-                    return StreamingResponse(
-                        io.BytesIO(audio_data),
-                        media_type="audio/wav",
-                        headers={"Content-Disposition": "attachment; filename=rocky.wav"}
-                    )
-            
-            # Fallback to espeak-ng for testing
-            # Check if espeak-ng is available
-            espeak_cmd = None
-            try:
-                subprocess.run(['espeak-ng', '--version'], capture_output=True, check=True)
-                espeak_cmd = 'espeak-ng'
-            except:
                 try:
-                    subprocess.run(['espeak', '--version'], capture_output=True, check=True)
-                    espeak_cmd = 'espeak'
-                except:
-                    pass
-            
-            if espeak_cmd:
-                # Generate with espeak using Rocky-like voice settings
-                # Slower speed and lower pitch for Rocky effect
-                result = subprocess.run(
-                    [espeak_cmd, '-w', tmp_path, '-s', voice_speed, '-p', '30', '-v', 'en+m3', text],
-                    capture_output=True,
-                    timeout=10
-                )
-                
-                if result.returncode == 0 and Path(tmp_path).exists():
-                    with open(tmp_path, 'rb') as f:
-                        audio_data = f.read()
-                    
-                    return StreamingResponse(
-                        io.BytesIO(audio_data),
-                        media_type="audio/wav",
-                        headers={"Content-Disposition": "attachment; filename=rocky_test.wav"}
+                    style_arg = "--style rules" if use_style else "--style off"
+                    result = subprocess.run(
+                        f'/usr/local/bin/test-rocky-tts "{text}" {style_arg} --output {tmp_path}',
+                        shell=True,
+                        capture_output=True,
+                        timeout=30
                     )
-            else:
-                # No TTS engine available - generate a simple beep or placeholder
-                # This creates a very basic sine wave as a placeholder
-                import struct
-                import math
-                
-                sample_rate = 22050
-                duration = 2  # seconds
-                frequency = 440  # Hz (A4 note)
-                
-                # Generate sine wave
-                samples = []
-                for i in range(int(sample_rate * duration)):
-                    t = float(i) / sample_rate
-                    value = int(32767 * math.sin(2 * math.pi * frequency * t))
-                    samples.append(struct.pack('<h', value))
-                
-                # Create WAV header
-                wav_header = struct.pack('<4sI4s4sIHHIIHH4sI',
-                    b'RIFF', 36 + len(samples) * 2, b'WAVE', b'fmt ', 16, 1, 1,
-                    sample_rate, sample_rate * 2, 2, 16, b'data', len(samples) * 2)
-                
-                audio_data = wav_header + b''.join(samples)
-                
-                # Add a note in the response header
-                return StreamingResponse(
-                    io.BytesIO(audio_data),
-                    media_type="audio/wav",
-                    headers={
-                        "Content-Disposition": "attachment; filename=placeholder.wav",
-                        "X-Audio-Note": "No TTS engine available - placeholder audio"
-                    }
-                )
-                
-        except Exception as e:
-            logger.error(f"Synthesis failed: {e}")
-            raise HTTPException(status_code=500, detail=f"Synthesis failed: {str(e)}")
-        finally:
-            # Clean up temp file
-            try:
-                if Path(tmp_path).exists():
-                    Path(tmp_path).unlink()
-            except:
-                pass
+                    
+                    if result.returncode == 0 and Path(tmp_path).exists():
+                        with open(tmp_path, 'rb') as f:
+                            audio_data = f.read()
+                        
+                        return StreamingResponse(
+                            io.BytesIO(audio_data),
+                            media_type="audio/wav",
+                            headers={"Content-Disposition": "attachment; filename=rocky.wav"}
+                        )
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        Path(tmp_path).unlink()
+                    except:
+                        pass
+        
+        raise HTTPException(
+            status_code=503, 
+            detail="YourTTS model not available. Please ensure the full Wyoming Rocky TTS is installed."
+        )
+        
+    except Exception as e:
+        logger.error(f"TTS synthesis failed: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"TTS synthesis failed: {str(e)}. Make sure YourTTS model is installed and configured."
+        )
 
 def main():
     import argparse
