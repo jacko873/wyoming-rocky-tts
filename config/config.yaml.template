@@ -1,0 +1,47 @@
+# Wyoming Rocky TTS Configuration
+
+# Wyoming Protocol Settings
+wyoming_host: 0.0.0.0
+wyoming_port: 10202
+
+# Web UI Settings  
+web_host: 0.0.0.0
+web_port: 8088
+
+# Paths
+speaker_wav: /home/rocky/.rocky_tts/rocky_reference.wav
+data_dir: /home/rocky/.rocky_tts
+cache_dir: /var/cache/wyoming-rocky
+
+# TTS Model Settings
+model_name: tts_models/multilingual/multi-dataset/your_tts
+cache_enabled: true
+warmup_text: System ready
+
+# Style Settings
+# Options: off, rules, openai
+style_mode: rules
+
+# OpenAI Settings (optional, only used if style_mode is "openai")
+openai_model: gpt-4-turbo-preview
+openai_api_key_env: OPENAI_API_KEY
+rocky_style_prompt: |
+  Rewrite the following assistant response for spoken TTS in a Rocky-inspired alien helper style.
+  Do not add facts. Do not remove important facts.
+  Do not change device names, room names, numbers, or action results.
+  Keep it short and easy to speak. Use simplified grammar.
+  Use repeated words for emphasis when natural.
+  Questions should end with "question?"
+  Return only the rewritten spoken text.
+
+# Audio Processing Settings
+audio_rate: 22050
+ffmpeg_filters: highpass=f=80,lowpass=f=8000,compand,loudnorm=I=-16:TP=-1.5:LRA=11
+
+# Processing Settings
+max_text_length: 500
+normalize_numbers: true
+normalize_units: true
+
+# Logging
+log_level: INFO

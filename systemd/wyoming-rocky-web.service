@@ -1,0 +1,20 @@
+[Unit]
+Description=Wyoming Rocky TTS Web UI
+After=network.target wyoming-rocky.service
+
+[Service]
+Type=simple
+User=rocky
+Group=rocky
+WorkingDirectory=/home/rocky/wyoming-rocky-tts
+Environment="PATH=/home/rocky/wyoming-rocky-tts/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="HOME=/home/rocky"
+Environment="PYTHONPATH=/home/rocky/wyoming-rocky-tts"
+ExecStart=/home/rocky/wyoming-rocky-tts/venv/bin/python -m src.web_ui --port 8088
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+#!/bin/bash
+
+echo "Clearing Wyoming Rocky TTS cache..."
+
+# Clear WAV files
+if [ -d "/var/cache/wyoming-rocky" ]; then
+    rm -f /var/cache/wyoming-rocky/*.wav
+    echo "  Removed cached audio files"
+fi
+
+# Clear database
+if [ -f "/var/cache/wyoming-rocky/cache.db" ]; then
+    sqlite3 /var/cache/wyoming-rocky/cache.db "DELETE FROM cache;"
+    echo "  Cleared cache database"
+fi
+
+echo "Cache cleared successfully"

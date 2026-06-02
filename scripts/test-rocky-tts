@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import tempfile
+import argparse
+from pathlib import Path
+
+# Add project to path
+sys.path.insert(0, '/home/rocky/wyoming-rocky-tts')
+
+from src.config import Config
+from src.text_normalizer import TextNormalizer
+from src.rocky_styler import RockyStyler
+from src.cache_manager import CacheManager
+
+def main():
+    parser = argparse.ArgumentParser(description='Test Rocky TTS')
+    parser.add_argument('text', nargs='?', default='Hello, this is Rocky speaking. System ready ready ready.')
+    parser.add_argument('--style', choices=['off', 'rules', 'openai'], default='rules')
+    parser.add_argument('--output', help='Output WAV file path')
+    parser.add_argument('--no-play', action='store_true', help="Don't play the audio")
+    
+    args = parser.parse_args()
+    
+    # Load config
+    config_path = Path.home() / '.rocky_tts' / 'config.yaml'
+    config = Config.load(config_path)
+    config.style_mode = args.style
+    
+    # Process text
+    print(f"Testing TTS with: {args.text}")
+    
+    normalizer = TextNormalizer(Path(config.data_dir) / "overrides.yaml")
+    styler = RockyStyler(args.style, config)
+    
+    styled = styler.apply_style(args.text)
+    print(f"Styled: {styled}")
+    
+    normalized = normalizer.normalize(styled)
+    print(f"Normalized: {normalized}")
+    
+    # Generate audio (simplified for testing)
+    output_path = args.output or f"/tmp/rocky_test_{os.getpid()}.wav"
+    
+    # Import and use the actual TTS
+    try:
+        from src.wyoming_server import RockyTTS
+        
+        tts = RockyTTS(config)
+        audio_data = tts.synthesize(args.text, use_cache=False)
+        
+        with open(output_path, 'wb') as f:
+            f.write(audio_data)
+        
+        print(f"Audio saved to: {output_path}")
+        
+        if not args.no_play:
+            os.system(f"play {output_path} 2>/dev/null || aplay {output_path} 2>/dev/null")
+    
+    except Exception as e:
+        print(f"Error generating audio: {e}")
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main()
