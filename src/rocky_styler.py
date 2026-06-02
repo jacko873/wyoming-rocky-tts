@@ -67,6 +67,7 @@ class RockyStyler:
             'excited': 'happy happy happy',
             'sad': 'sad sad sad',
             'upset': 'sad sad sad',
+            'sorry': 'sorry sorry sorry',
             'angry': 'angry angry angry',
             'furious': 'angry angry angry',
             'confused': 'confuse confuse confuse',
@@ -80,6 +81,8 @@ class RockyStyler:
             'certainly': 'yes yes yes',
             'impossible': 'no can. No no no',
             'unfortunately': 'sad sad sad',
+            'good': 'good good good',
+            'bad': 'bad bad bad',
         }
         
         # Common phrase replacements (applied first)
@@ -139,7 +142,7 @@ class RockyStyler:
             (r"has been set", "now set"),
             (r"successfully", "good good good"),
             (r"failed to", "no can"),
-            (r"unable to", "no can"),
+            (r"\bunable to", "no can"),
             (r"couldn't find", "no see"),
             (r"could not find", "no see"),
             (r"can't find", "no find"),
@@ -208,17 +211,25 @@ class RockyStyler:
                 lower = w.lower().rstrip('.,!?;:')
                 punct = w[len(lower):] if len(w) > len(lower) else ''
 
+                # Skip if this word is already part of a tripled pattern
+                if i >= 2 and lower == words[i-1].lower().rstrip('.,!?;:') == words[i-2].lower().rstrip('.,!?;:'):
+                    new_words.append(w)
+                    continue
+                if i >= 1 and i < len(words)-1 and lower == words[i-1].lower().rstrip('.,!?;:') == words[i+1].lower().rstrip('.,!?;:'):
+                    new_words.append(w)
+                    continue
+
                 # Handle contractions
                 if lower in self.contractions:
                     new_words.append(self.contractions[lower] + punct)
-                # Handle emphasis words (tripling)
-                elif lower in self.emphasis_map:
+                # Handle emphasis words (tripling) - but not if already tripled
+                elif lower in self.emphasis_map and not (i > 0 and lower == words[i-1].lower().rstrip('.,!?;:')):
                     new_words.append(self.emphasis_map[lower] + punct)
                 # Drop articles
                 elif lower in self.articles:
                     continue
-                # Drop auxiliaries (but keep at sentence start for some constructs)
-                elif lower in self.auxiliaries and i > 0:
+                # Drop auxiliaries (but keep at sentence start and end for some constructs)
+                elif lower in self.auxiliaries and i > 0 and i < len(words) - 1:
                     continue
                 else:
                     new_words.append(w)
@@ -229,11 +240,13 @@ class RockyStyler:
             s = re.sub(r'\s+', ' ', s).strip()
 
             # Handle questions - must end with ", question?"
-            if is_question and 'question' not in s.lower():
-                s = s.rstrip('?.,!').strip() + ', question?'
-            elif is_question:
-                # Already has "question" - ensure it ends with ?
-                s = s.rstrip('?').strip() + '?'
+            if is_question:
+                # Remove any existing question marks and "question" suffix to avoid duplication
+                s = s.rstrip('?.,!').strip()
+                if not s.lower().endswith('question'):
+                    s = s + ', question?'
+                else:
+                    s = s + '?'
 
             # Capitalize first word
             if s:
