@@ -16,18 +16,23 @@ A Wyoming-protocol compatible TTS server for Home Assistant that generates speec
 
 ## Quick Install
 
-Run this installer as root on a fresh Debian 12 LXC container:
-
+First, check your system compatibility:
 ```bash
-curl -sSL https://raw.githubusercontent.com/jacko873/wyoming-rocky-tts/main/install.sh | bash
+wget https://raw.githubusercontent.com/jacko873/wyoming-rocky-tts/main/check_system.sh
+chmod +x check_system.sh
+sudo ./check_system.sh
 ```
 
-Or download and run:
+If all checks pass, run the installer:
+```bash
+curl -sSL https://raw.githubusercontent.com/jacko873/wyoming-rocky-tts/main/install.sh | sudo bash
+```
 
+Or download and run manually:
 ```bash
 wget https://raw.githubusercontent.com/jacko873/wyoming-rocky-tts/main/install.sh
 chmod +x install.sh
-./install.sh
+sudo ./install.sh
 ```
 
 ## Requirements

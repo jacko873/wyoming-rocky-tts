@@ -104,19 +104,87 @@ fi
 # Update system packages
 echo ""
 print_info "Updating system packages..."
-apt update -qq
+apt update
 if ! apt upgrade -y; then
     print_error "System update failed. Please fix package issues and retry."
     exit 1
 fi
 
-# Install system dependencies with error checking
+# Check if Python 3.11 is available in repositories
 echo ""
-print_info "Installing system dependencies..."
-DEPS=(
-    "python3.11" "python3.11-venv" "python3.11-dev"
-    "python3-pip" "python3-setuptools" "python3-wheel"
-    "git" "curl" "wget" "unzip"
+print_info "Checking Python 3.11 availability..."
+if ! apt-cache show python3.11 >/dev/null 2>&1; then
+    print_warning "Python 3.11 not found in current repositories"
+    print_info "Adding deadsnakes PPA for Python 3.11..."
+    
+    # Install software-properties-common for add-apt-repository
+    apt install -y software-properties-common
+    
+    # Add deadsnakes PPA for Python 3.11
+    add-apt-repository -y ppa:deadsnakes/ppa
+    apt update
+    
+    # Verify Python 3.11 is now available
+    if ! apt-cache show python3.11 >/dev/null 2>&1; then
+        print_error "Python 3.11 still not available after adding PPA"
+        print_error "This system may not support Python 3.11"
+        print_error "Consider using Debian 12 or Ubuntu 22.04+"
+        exit 1
+    fi
+fi
+
+# Install critical dependencies first
+echo ""
+print_info "Installing critical system dependencies..."
+CRITICAL_DEPS=(
+    "git"
+    "python3.11"
+    "python3.11-venv"
+    "python3.11-dev"
+    "python3.11-distutils"
+    "python3-pip"
+)
+
+for dep in "${CRITICAL_DEPS[@]}"; do
+    print_info "Installing $dep..."
+    if ! apt install -y "$dep" 2>/dev/null; then
+        # Some packages might not exist on all systems, try alternatives
+        if [ "$dep" = "python3.11-distutils" ]; then
+            print_warning "$dep not available, trying python3-distutils..."
+            apt install -y python3-distutils 2>/dev/null || true
+        else
+            print_error "Failed to install critical dependency: $dep"
+            print_error "Please run: apt install $dep"
+            exit 1
+        fi
+    fi
+done
+
+# Verify Python 3.11 and venv are properly installed
+if ! python3.11 --version >/dev/null 2>&1; then
+    print_error "Python 3.11 is not installed correctly"
+    exit 1
+fi
+
+if ! python3.11 -m venv --help >/dev/null 2>&1; then
+    print_error "Python 3.11 venv module is not available"
+    print_error "Please run: apt install python3.11-venv"
+    exit 1
+fi
+
+if ! command -v git >/dev/null 2>&1; then
+    print_error "Git is not installed correctly"
+    exit 1
+fi
+
+print_status "Critical dependencies installed successfully"
+
+# Install remaining dependencies
+echo ""
+print_info "Installing additional system dependencies..."
+ADDITIONAL_DEPS=(
+    "python3-setuptools" "python3-wheel"
+    "curl" "wget" "unzip"
     "ffmpeg" "sox" "libsox-dev" "libsox-fmt-all"
     "build-essential" "cmake" "pkg-config"
     "libssl-dev" "libffi-dev" "libxml2-dev" "libxslt1-dev"
@@ -127,8 +195,8 @@ DEPS=(
     "espeak-ng" "espeak-ng-data"
 )
 
-# Install dependencies in batches to avoid overwhelming the system
-for dep in "${DEPS[@]}"; do
+# Install additional dependencies (non-critical)
+for dep in "${ADDITIONAL_DEPS[@]}"; do
     if ! dpkg -l "$dep" >/dev/null 2>&1; then
         if ! apt install -y "$dep"; then
             print_warning "Failed to install $dep, continuing..."
@@ -136,16 +204,16 @@ for dep in "${DEPS[@]}"; do
     fi
 done
 
-# Verify critical dependencies
-print_info "Verifying critical dependencies..."
-CRITICAL=("python3.11" "git" "ffmpeg" "sox")
-for dep in "${CRITICAL[@]}"; do
-    if ! command -v "$dep" >/dev/null 2>&1; then
-        print_error "Critical dependency '$dep' not found. Installation cannot continue."
+# Final verification of essential tools
+print_info "Verifying essential tools..."
+ESSENTIAL=("python3.11" "git" "ffmpeg" "sox")
+for tool in "${ESSENTIAL[@]}"; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        print_error "Essential tool '$tool' not found. Installation cannot continue."
         exit 1
     fi
 done
-print_status "All critical dependencies verified"
+print_status "All essential tools verified"
 
 # Create Rocky user account
 echo ""
@@ -195,20 +263,103 @@ print_status "Repository setup complete"
 # Create and setup Python virtual environment
 echo ""
 print_info "Setting up Python virtual environment..."
-if [ ! -d "$VENV_DIR" ]; then
-    if ! su - "$ROCKY_USER" -c "python3.11 -m venv '$VENV_DIR'"; then
-        print_error "Failed to create virtual environment"
-        exit 1
+
+# Check if venv exists but is broken
+if [ -d "$VENV_DIR" ]; then
+    # Check for essential files in the venv
+    if [ ! -f "$VENV_DIR/bin/python" ] || [ ! -f "$VENV_DIR/bin/pip" ]; then
+        print_warning "Virtual environment exists but appears broken"
+        print_info "Removing broken virtual environment..."
+        rm -rf "$VENV_DIR"
+    else
+        # Test if the venv actually works
+        if ! su - "$ROCKY_USER" -c "'$VENV_DIR/bin/python' --version >/dev/null 2>&1"; then
+            print_warning "Virtual environment exists but doesn't work properly"
+            print_info "Removing broken virtual environment..."
+            rm -rf "$VENV_DIR"
+        else
+            print_status "Virtual environment exists and appears functional"
+        fi
     fi
-    print_status "Virtual environment created"
-else
-    print_status "Virtual environment already exists"
+fi
+
+# Create virtual environment if it doesn't exist
+if [ ! -d "$VENV_DIR" ]; then
+    print_info "Creating new virtual environment at $VENV_DIR..."
+    
+    # First ensure python3.11-venv is really installed
+    if ! python3.11 -m venv --help >/dev/null 2>&1; then
+        print_error "Python venv module not available"
+        print_info "Installing/reinstalling python3.11-venv..."
+        apt install --reinstall -y python3.11-venv
+        
+        if ! python3.11 -m venv --help >/dev/null 2>&1; then
+            print_error "Cannot create virtual environment - venv module missing"
+            print_error "Please manually install: apt install python3.11-venv"
+            exit 1
+        fi
+    fi
+    
+    # Create venv as the rocky user with pip ensured
+    if ! su - "$ROCKY_USER" -c "python3.11 -m venv --system-site-packages '$VENV_DIR' 2>&1"; then
+        print_warning "Failed to create virtual environment as user"
+        print_info "Trying alternative method..."
+        
+        # Try creating it directly then changing ownership
+        if python3.11 -m venv --system-site-packages "$VENV_DIR" 2>&1; then
+            chown -R "$ROCKY_USER:$ROCKY_USER" "$VENV_DIR"
+            print_status "Virtual environment created (alternative method)"
+        else
+            print_error "Virtual environment creation failed completely"
+            print_error "Check that python3.11-venv is properly installed"
+            exit 1
+        fi
+    else
+        print_status "Virtual environment created successfully"
+    fi
+    
+    # Ensure pip is installed in the venv
+    if [ ! -f "$VENV_DIR/bin/pip" ]; then
+        print_warning "pip not found in virtual environment, installing..."
+        su - "$ROCKY_USER" -c "'$VENV_DIR/bin/python' -m ensurepip --default-pip" || \
+        su - "$ROCKY_USER" -c "'$VENV_DIR/bin/python' -m pip install --upgrade pip"
+    fi
+fi
+
+# Final verification that virtual environment is working
+if [ ! -f "$VENV_DIR/bin/python" ] || [ ! -f "$VENV_DIR/bin/pip" ]; then
+    print_error "Virtual environment is missing essential components"
+    print_error "Please run: rm -rf $VENV_DIR && sudo $0"
+    exit 1
 fi
 
 # Upgrade pip and setuptools in venv
-if ! su - "$ROCKY_USER" -c "'$VENV_DIR/bin/pip' install --upgrade pip setuptools wheel"; then
-    print_error "Failed to upgrade pip in virtual environment"
-    exit 1
+print_info "Upgrading pip, setuptools, and wheel in virtual environment..."
+if ! su - "$ROCKY_USER" -c "'$VENV_DIR/bin/pip' install --upgrade pip setuptools wheel 2>&1"; then
+    print_warning "Failed to upgrade pip using pip directly, trying alternative..."
+    
+    # Try using python -m pip instead
+    if su - "$ROCKY_USER" -c "'$VENV_DIR/bin/python' -m pip install --upgrade pip setuptools wheel 2>&1"; then
+        print_status "Upgraded pip using python -m pip"
+    else
+        # Last resort - download and install pip
+        print_warning "pip upgrade failed, attempting to reinstall pip..."
+        if su - "$ROCKY_USER" -c "
+            cd /tmp
+            wget -q https://bootstrap.pypa.io/get-pip.py
+            '$VENV_DIR/bin/python' get-pip.py
+            rm get-pip.py
+            '$VENV_DIR/bin/pip' install --upgrade setuptools wheel
+        " 2>&1; then
+            print_status "pip reinstalled successfully"
+        else
+            print_error "Failed to install/upgrade pip in virtual environment"
+            print_error "Manual intervention required"
+            exit 1
+        fi
+    fi
+else
+    print_status "pip, setuptools, and wheel upgraded successfully"
 fi
 
 # Install Python dependencies with retry logic
