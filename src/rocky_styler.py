@@ -228,7 +228,8 @@ class RockyStyler:
         # Try to initialize OpenAI client
         try:
             # Clear proxy environment variables temporarily
-            proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
+            proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
+                         'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']
             saved_proxies = {}
             for var in proxy_vars:
                 if var in os.environ:
@@ -236,25 +237,28 @@ class RockyStyler:
                     del os.environ[var]
             
             try:
-                # Try new client API
-                self.openai_client = openai.OpenAI(api_key=api_key)
+                # Try new client API without any proxy settings
+                self.openai_client = openai.OpenAI(
+                    api_key=api_key,
+                    # Explicitly disable proxy
+                    http_client=None
+                )
                 logger.info("✅ OpenAI client initialized (new API)")
+                # Test it works
+                test_response = self.openai_client.models.list()
+                logger.info("✅ OpenAI client tested successfully")
             finally:
                 # Restore proxy settings
                 for var, value in saved_proxies.items():
                     os.environ[var] = value
                     
         except Exception as e:
-            logger.info(f"New API failed ({e}), trying legacy API...")
-            try:
-                # Fall back to legacy API
-                openai.api_key = api_key
-                self.openai_legacy = True
-                self.openai_client = None
-                logger.info("✅ OpenAI configured with legacy API")
-            except Exception as e2:
-                logger.error(f"❌ OpenAI initialization completely failed: {e2}")
-                self.mode = "rules"
+            logger.info(f"Client initialization failed ({e}), setting up for fallback mode...")
+            # Store the API key for fallback usage
+            openai.api_key = api_key
+            self.openai_legacy = True
+            self.openai_client = None
+            logger.info("✅ OpenAI configured for fallback mode (will create client per request)")
                 
     def apply_style(self, text: str) -> str:
         """Apply Rocky styling to text."""
@@ -373,18 +377,34 @@ class RockyStyler:
             import openai
             
             if self.openai_legacy:
-                # Use legacy API
-                logger.info("Using legacy OpenAI API...")
-                response = openai.ChatCompletion.create(
-                    model=self.config.openai_model if self.config else "gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": self.config.rocky_style_prompt if self.config else "Transform text to sound like Rocky from Project Hail Mary"},
-                        {"role": "user", "content": text}
-                    ],
-                    temperature=0.7,
-                    max_tokens=150
-                )
-                styled = response.choices[0].message.content.strip()
+                # For versions where client initialization failed but we have API key
+                # This means we have openai >= 1.0 but client init had issues
+                # Create a temporary client just for this request
+                logger.info("Using fallback OpenAI client creation...")
+                
+                # Clear proxies again for this request
+                proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
+                saved_proxies = {}
+                for var in proxy_vars:
+                    if var in os.environ:
+                        saved_proxies[var] = os.environ.pop(var)
+                
+                try:
+                    temp_client = openai.OpenAI(api_key=openai.api_key)
+                    response = temp_client.chat.completions.create(
+                        model=self.config.openai_model if self.config else "gpt-3.5-turbo",
+                        messages=[
+                            {"role": "system", "content": self.config.rocky_style_prompt if self.config else "Transform text to sound like Rocky from Project Hail Mary"},
+                            {"role": "user", "content": text}
+                        ],
+                        temperature=0.7,
+                        max_tokens=150
+                    )
+                    styled = response.choices[0].message.content.strip()
+                finally:
+                    # Restore proxies
+                    for var, value in saved_proxies.items():
+                        os.environ[var] = value
             else:
                 # Use new client API
                 logger.info("Using new OpenAI client API...")
