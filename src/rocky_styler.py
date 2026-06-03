@@ -171,18 +171,87 @@ class RockyStyler:
     def _init_openai(self):
         try:
             import openai
+            
+            # First check if .env file exists and load it
+            env_file = Path.cwd() / '.env'
+            if not env_file.exists():
+                # Try the app directory
+                app_dir = Path(__file__).parent.parent
+                env_file = app_dir / '.env'
+            
+            if env_file.exists():
+                logger.info(f"Loading .env file from: {env_file}")
+                # Load .env file manually
+                with open(env_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            key = key.strip()
+                            value = value.strip().strip('"').strip("'")
+                            os.environ[key] = value
+                            logger.info(f"Set environment variable: {key}")
+            
             api_key = os.getenv(self.config.openai_api_key_env)
             logger.info(f"OpenAI initialization - looking for env var: {self.config.openai_api_key_env}")
             logger.info(f"OpenAI API key found: {'Yes' if api_key else 'No'}")
+            
             if api_key:
-                openai.api_key = api_key
-                self.openai_client = openai.OpenAI()
-                logger.info("✅ OpenAI client initialized successfully")
+                # Initialize the OpenAI client with the API key
+                # Handle different OpenAI library versions and proxy issues
+                try:
+                    # Work around proxy issue in openai 1.10.0
+                    # Clear any proxy environment variables that might cause issues
+                    import os
+                    proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
+                    saved_proxies = {}
+                    for var in proxy_vars:
+                        if var in os.environ:
+                            saved_proxies[var] = os.environ[var]
+                            del os.environ[var]
+                    
+                    # Try new client initialization (openai >= 1.0)
+                    self.openai_client = openai.OpenAI(api_key=api_key)
+                    logger.info("✅ OpenAI client initialized successfully (v1.0+ API)")
+                    
+                    # Restore proxy settings
+                    for var, value in saved_proxies.items():
+                        os.environ[var] = value
+                        
+                except (TypeError, Exception) as e:
+                    # Fall back to setting API key globally for older versions or errors
+                    logger.info(f"Handling OpenAI client initialization error: {e}")
+                    openai.api_key = api_key
+                    
+                    # For older OpenAI library versions or when client fails, we don't use a client object
+                    # Set a flag to use the old API style
+                    self.openai_legacy = True
+                    self.openai_client = None  # Will use openai module directly
+                    logger.info("✅ OpenAI configured with legacy API style")
+                
+                # Test the connection
+                try:
+                    if hasattr(self, 'openai_legacy') and self.openai_legacy:
+                        # Test with legacy API
+                        test_response = openai.ChatCompletion.create(
+                            model="gpt-3.5-turbo",
+                            messages=[{"role": "user", "content": "test"}],
+                            max_tokens=5
+                        )
+                        logger.info("✅ OpenAI connection verified (legacy API)")
+                    elif self.openai_client:
+                        models = self.openai_client.models.list()
+                        logger.info(f"✅ OpenAI connection verified, models available")
+                except Exception as test_error:
+                    logger.warning(f"⚠️ OpenAI connection test failed: {test_error}")
             else:
                 logger.warning(f"❌ OpenAI API key not found in environment variable '{self.config.openai_api_key_env}', falling back to rules mode")
                 self.mode = "rules"
         except ImportError as e:
             logger.warning(f"❌ OpenAI library not installed: {e}, falling back to rules mode")
+            self.mode = "rules"
+        except Exception as e:
+            logger.error(f"❌ OpenAI initialization error: {e}, falling back to rules mode")
             self.mode = "rules"
     
     def apply_style(self, text: str) -> str:
@@ -307,23 +376,41 @@ class RockyStyler:
     def _apply_openai_style(self, text: str) -> str:
         logger.info(f"🤖 OpenAI styling requested for: {text[:50]}...")
         
-        if not hasattr(self, 'openai_client'):
-            logger.warning("❌ No OpenAI client available, using rules mode")
+        # Check if OpenAI is configured
+        if not hasattr(self, 'openai_client') and not hasattr(self, 'openai_legacy'):
+            logger.warning("❌ No OpenAI configuration available, using rules mode")
             return self._apply_rules_style(text)
         
         try:
             logger.info(f"📡 Calling OpenAI {self.config.openai_model} API...")
-            response = self.openai_client.chat.completions.create(
-                model=self.config.openai_model,
-                messages=[
-                    {"role": "system", "content": self.config.rocky_style_prompt},
-                    {"role": "user", "content": text}
-                ],
-                temperature=0.7,
-                max_tokens=150
-            )
             
-            styled = response.choices[0].message.content.strip()
+            # Use appropriate API style based on configuration
+            if hasattr(self, 'openai_legacy') and self.openai_legacy:
+                # Use legacy API style
+                import openai
+                response = openai.ChatCompletion.create(
+                    model=self.config.openai_model,
+                    messages=[
+                        {"role": "system", "content": self.config.rocky_style_prompt},
+                        {"role": "user", "content": text}
+                    ],
+                    temperature=0.7,
+                    max_tokens=150
+                )
+                styled = response.choices[0].message.content.strip()
+            else:
+                # Use new client-based API
+                response = self.openai_client.chat.completions.create(
+                    model=self.config.openai_model,
+                    messages=[
+                        {"role": "system", "content": self.config.rocky_style_prompt},
+                        {"role": "user", "content": text}
+                    ],
+                    temperature=0.7,
+                    max_tokens=150
+                )
+                styled = response.choices[0].message.content.strip()
+            
             logger.info(f"✅ OpenAI response: {text[:30]}... -> {styled[:50]}...")
             
             # Apply text normalization to OpenAI output (numbers to words, etc.)

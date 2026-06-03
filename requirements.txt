@@ -36,4 +36,5 @@ click==8.1.7
 typer==0.9.0
 
 # Optional: OpenAI integration
-openai==1.10.0
+# Note: 1.10.0 has proxy issues, use 1.3.0 for stability
+openai==1.3.0

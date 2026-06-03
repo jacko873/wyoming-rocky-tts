@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import logging
+import traceback
 from pathlib import Path
 from typing import Optional
 import io
@@ -609,8 +610,37 @@ async def home():
                 });
                 const result = await resp.json();
                 
+                // Check if there's an error in the response
+                if (result.error) {
+                    let html = '<div style="background: #fee; color: #333; padding: 20px; border-radius: 8px; margin-top: 10px; border: 1px solid #fcc;">';
+                    html += '<h3 style="margin-top: 0; color: #d00;">⚠️ Error in Text Transformation:</h3>';
+                    html += '<div style="margin: 10px 0; color: #800;">' + result.error + '</div>';
+                    if (result.error_detail) {
+                        html += '<div style="margin: 10px 0; color: #666; font-size: 14px;">' + result.error_detail + '</div>';
+                    }
+                    html += '<div style="margin: 15px 0; padding: 10px; background: #fff; border-left: 3px solid #f44;">';
+                    html += '<strong>Original Text:</strong><br>' + result.original;
+                    html += '</div>';
+                    if (result.actual_mode) {
+                        html += '<div style="margin-top: 10px; padding: 10px; background: #ffc; border-radius: 4px;">';
+                        html += '<small>Note: Mode fell back to <strong>' + result.actual_mode + '</strong> due to the error.</small>';
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                    document.getElementById('pipeline-result').innerHTML = html;
+                    return;
+                }
+                
                 let html = '<div style="background: white; color: #333; padding: 20px; border-radius: 8px; margin-top: 10px;">';
                 html += '<h3 style="margin-top: 0; color: #667eea;">📝 Text Transformation Results:</h3>';
+                
+                // Show actual mode if different from requested
+                if (result.actual_mode && result.actual_mode !== result.mode) {
+                    html += '<div style="margin: 10px 0; padding: 10px; background: #ffc; border-radius: 4px;">';
+                    html += '<small>ℹ️ Using <strong>' + result.actual_mode + '</strong> mode (requested ' + result.mode + ' but fell back)</small>';
+                    html += '</div>';
+                }
+                
                 html += '<div class="pipeline-stage" style="margin: 15px 0; padding: 15px; background: #f0f0f0; border-left: 3px solid #667eea;">';
                 html += '<strong style="color: #667eea; display: block; margin-bottom: 5px;">Original Text:</strong>';
                 html += '<div style="font-size: 16px; line-height: 1.5;">' + result.original + '</div>';
@@ -624,7 +654,7 @@ async def home():
                 html += '<div style="font-size: 16px; line-height: 1.5;">' + result.normalized + '</div>';
                 html += '</div>';
                 html += '<div style="margin-top: 15px; padding: 10px; background: #e8f4fd; border-radius: 4px;">';
-                html += '<small>Cache Key: <code>' + result.cache_key.substring(0, 16) + '...</code></small>';
+                html += '<small>Cache Key: <code>' + (result.cache_key ? result.cache_key.substring(0, 16) + '...' : 'N/A') + '</code></small>';
                 html += '</div>';
                 html += '</div>';
                 
@@ -634,6 +664,14 @@ async def home():
                 if (document.querySelector('[name="style_mode"]').value !== 'off') {
                     setTimeout(() => synthesizeTest(), 500);
                 }
+            } catch(error) {
+                console.error('Error during text transformation:', error);
+                let html = '<div style="background: #fee; color: #333; padding: 20px; border-radius: 8px; margin-top: 10px; border: 1px solid #fcc;">';
+                html += '<h3 style="margin-top: 0; color: #d00;">⚠️ Network or Server Error:</h3>';
+                html += '<div style="margin: 10px 0; color: #800;">' + error.message + '</div>';
+                html += '<div style="margin: 10px 0; color: #666; font-size: 14px;">Please check the server logs or try again.</div>';
+                html += '</div>';
+                document.getElementById('pipeline-result').innerHTML = html;
             } finally {
                 isProcessing = false;
                 button.disabled = false;
@@ -928,24 +966,43 @@ async def download_config():
 async def test_text(text: str = Form(...), style_mode: str = Form("rules")):
     global config, normalizer
     
-    # Validate style mode
-    if style_mode not in ["off", "rules", "openai"]:
-        style_mode = "rules"
-    
-    styler = RockyStyler(style_mode, config)
-    styled = styler.apply_style(text)
-    normalized = normalizer.normalize(styled)
-    
-    import hashlib
-    cache_key = hashlib.sha256(f"{text}:{style_mode}:test".encode()).hexdigest()
-    
-    return {
-        "original": text,
-        "styled": styled,
-        "normalized": normalized,
-        "cache_key": cache_key,
-        "mode": style_mode
-    }
+    try:
+        # Validate style mode
+        if style_mode not in ["off", "rules", "openai"]:
+            style_mode = "rules"
+        
+        # Log the request
+        logger.info(f"Test text requested - mode: {style_mode}, text: {text[:50]}...")
+        
+        styler = RockyStyler(style_mode, config)
+        styled = styler.apply_style(text)
+        normalized = normalizer.normalize(styled)
+        
+        import hashlib
+        cache_key = hashlib.sha256(f"{text}:{style_mode}:test".encode()).hexdigest()
+        
+        return {
+            "original": text,
+            "styled": styled,
+            "normalized": normalized,
+            "cache_key": cache_key,
+            "mode": style_mode,
+            "actual_mode": styler.mode  # Return the actual mode used (may fallback)
+        }
+    except Exception as e:
+        logger.error(f"Error in test_text endpoint: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        # Return partial results with error info
+        return {
+            "original": text,
+            "styled": text,  # Return original text on error
+            "normalized": text,
+            "cache_key": "",
+            "mode": style_mode,
+            "error": str(e),
+            "error_detail": "Check server logs for more details"
+        }
 
 @app.post("/api/synthesize")
 async def synthesize(request: Request):
