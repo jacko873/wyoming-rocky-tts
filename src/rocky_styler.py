@@ -13,120 +13,134 @@ class RockyStyler:
         self.config = config
         
         # Initialize text normalizer
-        overrides_file = None
-        if config and hasattr(config, 'overrides_file'):
-            overrides_file = Path(config.overrides_file)
-        elif config and hasattr(config, 'data_dir'):
-            overrides_file = Path(config.data_dir) / "overrides.yaml"
+        self.text_normalizer = TextNormalizer()
         
-        self.text_normalizer = TextNormalizer(overrides_file)
+        # Initialize OpenAI client to None
+        self.openai_client = None
+        self.openai_legacy = False
         
-        # Articles and auxiliaries to strip
-        self.articles = {'a', 'an', 'the'}
-        self.auxiliaries = {'is', 'are', 'was', 'were', 'will', 'would', 'should', 'could',
-                           'do', 'does', 'did', 'has', 'have', 'had', 'am', 'been', 'being'}
-        
-        # Contractions mapping
+        # Contractions mapping (always drop these)
         self.contractions = {
             "i'm": "I",
-            "i've": "I", 
-            "i'll": "I",
-            "i'd": "I",
             "you're": "you",
-            "you've": "you",
-            "you'll": "you",
-            "we're": "we",
-            "we've": "we",
-            "we'll": "we",
-            "they're": "they",
-            "they've": "they",
-            "they'll": "they",
             "he's": "he",
             "she's": "she",
             "it's": "it",
-            "that's": "that",
-            "there's": "there",
-            "what's": "what",
+            "we're": "we",
+            "they're": "they",
+            "i've": "I",
+            "you've": "you",
+            "we've": "we",
+            "they've": "they",
+            "i'd": "I",
+            "you'd": "you",
+            "he'd": "he",
+            "she'd": "she",
+            "we'd": "we",
+            "they'd": "they",
+            "i'll": "I will",
+            "you'll": "you will",
+            "he'll": "he will",
+            "she'll": "she will",
+            "we'll": "we will",
+            "they'll": "they will",
+            "isn't": "is no",
+            "aren't": "are no",
+            "wasn't": "was no",
+            "weren't": "were no",
+            "haven't": "have no",
+            "hasn't": "has no",
+            "hadn't": "had no",
+            "doesn't": "does no",
             "don't": "no",
-            "doesn't": "no",
-            "didn't": "no",
-            "can't": "no can",
-            "cannot": "no can",
-            "won't": "no will",
-            "isn't": "is not",
-            "aren't": "are not",
-            "wasn't": "was not",
-            "weren't": "were not",
-            "haven't": "no have",
-            "hasn't": "no have",
-            "hadn't": "no have",
+            "didn't": "did no",
+            "won't": "will no",
+            "wouldn't": "would no",
+            "shouldn't": "should no",
+            "couldn't": "could no",
+            "can't": "can no",
+            "cannot": "can no",
+            "mustn't": "must no",
+            "let's": "we",
+            "that's": "that",
+            "there's": "there is",
+            "here's": "here is",
+            "what's": "what",
+            "where's": "where",
+            "who's": "who",
+            "how's": "how",
         }
-        
-        # Emphasis words that get tripled
+
+        # Articles to drop
+        self.articles = {"the", "a", "an"}
+
+        # Auxiliary verbs to sometimes drop
+        self.auxiliaries = {"is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did"}
+
+        # Words that should be emphasized by tripling
         self.emphasis_map = {
-            'amazing': 'amaze amaze amaze',
-            'wonderful': 'amaze amaze amaze',
-            'incredible': 'amaze amaze amaze',
-            'fantastic': 'amaze amaze amaze',
-            'excellent': 'good good good',
-            'great': 'good good good',
-            'perfect': 'good good good',
-            'terrible': 'bad bad bad',
-            'awful': 'bad bad bad',
-            'horrible': 'bad bad bad',
-            'happy': 'happy happy happy',
-            'excited': 'happy happy happy',
-            'sad': 'sad sad sad',
-            'upset': 'sad sad sad',
-            'sorry': 'sorry sorry sorry',
-            'angry': 'angry angry angry',
-            'furious': 'angry angry angry',
-            'confused': 'confuse confuse confuse',
-            'scared': 'scared scared scared',
-            'afraid': 'scared scared scared',
-            'dangerous': 'danger danger danger',
-            'important': 'important important important',
-            'interesting': 'interesting interesting interesting',
-            'absolutely': 'yes yes yes',
-            'definitely': 'yes yes yes',
-            'certainly': 'yes yes yes',
-            'impossible': 'no can. No no no',
-            'unfortunately': 'sad sad sad',
-            'good': 'good good good',
-            'bad': 'bad bad bad',
+            "amazing": "amaze amaze amaze",
+            "awesome": "awesome awesome awesome",
+            "terrible": "bad bad bad",
+            "horrible": "bad bad bad",
+            "excellent": "good good good",
+            "fantastic": "good good good",
+            "wonderful": "good good good",
+            "great": "good good good",
+            "perfect": "perfect perfect perfect",
+            "beautiful": "pretty pretty pretty",
+            "important": "important important important",
+            "critical": "important important important",
+            "essential": "important important important",
+            "happy": "happy happy happy",
+            "sad": "sad sad sad",
+            "angry": "angry angry angry",
+            "scared": "scared scared scared",
+            "excited": "excite excite excite",
+            "confused": "confuse confuse confuse",
+            "worried": "worry worry worry",
         }
-        
-        # Common phrase replacements (applied first)
+
+        # Common phrase replacements (before tripling)
         self.phrase_patterns = [
-            (r"i don'?t understand", "no understand"),
-            (r"i do not understand", "no understand"),
-            (r"i don'?t know", "I not know"),
-            (r"what do you mean", "what mean"),
-            (r"what does that mean", "what mean"),
-            (r"what does .+ mean", "what mean"),
-            (r"i need a word for", "need word"),
-            (r"i'?m going to", "I"),
-            (r"going to\s+", ""),
-            (r"want to\s+", "want "),
-            (r"need to\s+", "need "),
-            (r"have to\s+", "must "),
-            (r"try to\s+", "try "),
-            (r"\bable to\s+", "can "),
-            (r"in order to\s+", "to "),
-            (r"because of\s+", "because "),
-            (r"a lot of\s+", "many "),
-            (r"lots of\s+", "many "),
-            (r"kind of\s+", ""),
-            (r"sort of\s+", ""),
-            (r"right now", "now"),
-            (r"at this point", "now"),
-            (r"at the moment", "now"),
-            (r"as well", "also"),
-            (r"in addition", "also"),
-            (r"however", "but"),
-            (r"therefore", "so"),
-            (r"nevertheless", "but"),
-            (r"furthermore", "also"),
+            # First handle compound phrases that include "successfully"
+            (r"have been (turned|switched) (on|off) successfully", r"\2. Good good good"),
+            (r"has been (turned|switched) (on|off) successfully", r"\2. Good good good"),
+            (r"(turned|switched) (on|off) successfully", r"\2. Good good good"),
+            
+            # Simple replacements
+            (r"hello there", "hello hello"),
+            (r"thank you very much", "thank thank thank"),
+            (r"thank you", "thank"),
+            (r"please", ""),
+            (r"excuse me", "sorry"),
+            (r"i'm sorry", "sorry sorry"),
+            (r"oh my god", "oh oh oh"),
+            (r"oh my", "oh oh"),
+            (r"what the hell", "what what"),
+            (r"what on earth", "what what"),
+            
+            # Remove politeness markers
+            (r"would you mind", "you"),
+            (r"could you please", "you"),
+            (r"could you", "you"),
+            (r"would you", "you"),
+            (r"may i", "I"),
+            (r"might i", "I"),
+            
+            # Simplify complex phrases
+            (r"in order to", "to"),
+            (r"due to the fact that", "because"),
+            (r"in the event that", "if"),
+            (r"at this point in time", "now"),
+            (r"at the present time", "now"),
+            
+            # Simplify formal language
+            (r"utilize", "use"),
+            (r"implement", "do"),
+            (r"facilitate", "help"),
+            (r"demonstrate", "show"),
+            (r"indicate", "show"),
             (r"approximately", "about"),
             (r"regarding", "about"),
             (r"concerning", "about"),
@@ -166,100 +180,84 @@ class RockyStyler:
         ]
         
         if mode == "openai" and config:
-            self._init_openai()
+            self._init_openai_safe()
     
-    def _init_openai(self):
+    def _init_openai_safe(self):
+        """Initialize OpenAI with better error handling"""
         try:
             import openai
-            
-            # First check if .env file exists and load it
-            env_file = Path.cwd() / '.env'
-            if not env_file.exists():
-                # Try the app directory
-                app_dir = Path(__file__).parent.parent
-                env_file = app_dir / '.env'
-            
-            if env_file.exists():
-                logger.info(f"Loading .env file from: {env_file}")
-                # Load .env file manually
-                with open(env_file) as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#') and '=' in line:
-                            key, value = line.split('=', 1)
-                            key = key.strip()
-                            value = value.strip().strip('"').strip("'")
-                            os.environ[key] = value
-                            logger.info(f"Set environment variable: {key}")
-            
-            api_key = os.getenv(self.config.openai_api_key_env)
-            logger.info(f"OpenAI initialization - looking for env var: {self.config.openai_api_key_env}")
-            logger.info(f"OpenAI API key found: {'Yes' if api_key else 'No'}")
-            
-            if api_key:
-                # Initialize the OpenAI client with the API key
-                # Handle different OpenAI library versions and proxy issues
-                try:
-                    # Work around proxy issue in openai 1.10.0
-                    # Clear any proxy environment variables that might cause issues
-                    import os
-                    proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
-                    saved_proxies = {}
-                    for var in proxy_vars:
-                        if var in os.environ:
-                            saved_proxies[var] = os.environ[var]
-                            del os.environ[var]
-                    
-                    # Try new client initialization (openai >= 1.0)
-                    self.openai_client = openai.OpenAI(api_key=api_key)
-                    logger.info("✅ OpenAI client initialized successfully (v1.0+ API)")
-                    
-                    # Restore proxy settings
-                    for var, value in saved_proxies.items():
-                        os.environ[var] = value
-                        
-                except (TypeError, Exception) as e:
-                    # Fall back to setting API key globally for older versions or errors
-                    logger.info(f"Handling OpenAI client initialization error: {e}")
-                    openai.api_key = api_key
-                    
-                    # For older OpenAI library versions or when client fails, we don't use a client object
-                    # Set a flag to use the old API style
-                    self.openai_legacy = True
-                    self.openai_client = None  # Will use openai module directly
-                    logger.info("✅ OpenAI configured with legacy API style")
-                
-                # Test the connection
-                try:
-                    if hasattr(self, 'openai_legacy') and self.openai_legacy:
-                        # Test with legacy API
-                        test_response = openai.ChatCompletion.create(
-                            model="gpt-3.5-turbo",
-                            messages=[{"role": "user", "content": "test"}],
-                            max_tokens=5
-                        )
-                        logger.info("✅ OpenAI connection verified (legacy API)")
-                    elif self.openai_client:
-                        models = self.openai_client.models.list()
-                        logger.info(f"✅ OpenAI connection verified, models available")
-                except Exception as test_error:
-                    logger.warning(f"⚠️ OpenAI connection test failed: {test_error}")
-            else:
-                logger.warning(f"❌ OpenAI API key not found in environment variable '{self.config.openai_api_key_env}', falling back to rules mode")
-                self.mode = "rules"
         except ImportError as e:
             logger.warning(f"❌ OpenAI library not installed: {e}, falling back to rules mode")
             self.mode = "rules"
-        except Exception as e:
-            logger.error(f"❌ OpenAI initialization error: {e}, falling back to rules mode")
-            self.mode = "rules"
-    
-    def apply_style(self, text: str) -> str:
-        """Apply Rocky styling to text. 
+            return
         
-        Both rules and OpenAI modes include text normalization 
-        (numbers to words, temperature symbols, etc.)
-        """
+        # Load .env file if it exists
+        env_files = [
+            Path.cwd() / '.env',
+            Path(__file__).parent.parent / '.env',
+            Path.home() / 'wyoming-rocky-tts' / '.env',
+            Path('/home/rocky/wyoming-rocky-tts/.env')
+        ]
+        
+        for env_file in env_files:
+            if env_file.exists():
+                logger.info(f"Loading .env file from: {env_file}")
+                try:
+                    with open(env_file) as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#') and '=' in line:
+                                key, value = line.split('=', 1)
+                                key = key.strip()
+                                value = value.strip().strip('"').strip("'")
+                                os.environ[key] = value
+                                logger.info(f"Set environment variable: {key}")
+                    break
+                except Exception as e:
+                    logger.warning(f"Error loading .env file: {e}")
+        
+        # Get API key
+        api_key = os.getenv(self.config.openai_api_key_env if self.config else 'OPENAI_API_KEY')
+        logger.info(f"OpenAI API key found: {'Yes' if api_key else 'No'}")
+        
+        if not api_key:
+            logger.warning("❌ OpenAI API key not found, falling back to rules mode")
+            self.mode = "rules"
+            return
+        
+        # Try to initialize OpenAI client
+        try:
+            # Clear proxy environment variables temporarily
+            proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
+            saved_proxies = {}
+            for var in proxy_vars:
+                if var in os.environ:
+                    saved_proxies[var] = os.environ[var]
+                    del os.environ[var]
+            
+            try:
+                # Try new client API
+                self.openai_client = openai.OpenAI(api_key=api_key)
+                logger.info("✅ OpenAI client initialized (new API)")
+            finally:
+                # Restore proxy settings
+                for var, value in saved_proxies.items():
+                    os.environ[var] = value
+                    
+        except Exception as e:
+            logger.info(f"New API failed ({e}), trying legacy API...")
+            try:
+                # Fall back to legacy API
+                openai.api_key = api_key
+                self.openai_legacy = True
+                self.openai_client = None
+                logger.info("✅ OpenAI configured with legacy API")
+            except Exception as e2:
+                logger.error(f"❌ OpenAI initialization completely failed: {e2}")
+                self.mode = "rules"
+                
+    def apply_style(self, text: str) -> str:
+        """Apply Rocky styling to text."""
         if self.mode == "off":
             return text
         
@@ -275,47 +273,36 @@ class RockyStyler:
         
         # Step 1: Normalize text (numbers to words, temperatures, etc.)
         text = self.text_normalizer.normalize(text)
+        
+        # Step 2: Convert to lowercase for processing (preserve original for now)
+        text_lower = text.lower()
 
-        # Step 2: Work sentence by sentence
-        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        # Step 3: Apply phrase replacements
+        for pattern, replacement in self.phrase_patterns:
+            text_lower = re.sub(pattern, replacement, text_lower)
+
+        # Step 4: Split into sentences and process each
+        sentences = re.split(r'(?<=[.!?])\s+', text_lower)
         result = []
 
         for sentence in sentences:
-            s = sentence.strip()
-            if not s:
+            if not sentence.strip():
                 continue
 
-            # Detect if it's a question
-            is_question = (
-                s.endswith('?') or
-                any(s.lower().startswith(q) for q in ['what', 'why', 'how', 'when', 'where', 'who', 'which', 'whose',
-                                                       'would', 'could', 'should', 'can', 'will', 'do', 'does', 'did',
-                                                       'are', 'is', 'was', 'were', 'have', 'has', 'may', 'might'])
-            )
+            s = sentence.strip()
+            
+            # Check if this is a question
+            is_question = s.endswith('?') or 'what' in s or 'where' in s or 'when' in s or 'who' in s or 'why' in s or 'how' in s
 
-            # Apply phrase-level replacements first (case insensitive)
-            for pattern, replacement in self.phrase_patterns:
-                s = re.sub(pattern, replacement, s, flags=re.IGNORECASE)
-
-            # Expand contractions and apply emphasis, drop articles and auxiliaries
+            # Process words
             words = s.split()
             new_words = []
             
-            # Track which words are part of existing tripled sequences
+            # Track which indices have been processed to avoid re-tripling
             skip_indices = set()
-            
-            # Pre-scan for existing tripled patterns to avoid re-tripling
-            for i in range(len(words) - 2):
-                word1 = words[i].lower().rstrip('.,!?;:')
-                word2 = words[i+1].lower().rstrip('.,!?;:')
-                word3 = words[i+2].lower().rstrip('.,!?;:')
-                
-                if word1 == word2 == word3:
-                    # Mark all three as already tripled
-                    skip_indices.update([i, i+1, i+2])
-            
+
             for i, w in enumerate(words):
-                # Extract punctuation
+                # Clean up the word but preserve punctuation
                 lower = w.lower().rstrip('.,!?;:')
                 punct = w[len(lower):] if len(w) > len(lower) else ''
 
@@ -374,24 +361,24 @@ class RockyStyler:
         return output.strip()
     
     def _apply_openai_style(self, text: str) -> str:
+        """Apply OpenAI styling to text."""
         logger.info(f"🤖 OpenAI styling requested for: {text[:50]}...")
         
-        # Check if OpenAI is configured
-        if not hasattr(self, 'openai_client') and not hasattr(self, 'openai_legacy'):
+        # Check if OpenAI is available
+        if not self.openai_client and not self.openai_legacy:
             logger.warning("❌ No OpenAI configuration available, using rules mode")
             return self._apply_rules_style(text)
         
         try:
-            logger.info(f"📡 Calling OpenAI {self.config.openai_model} API...")
+            import openai
             
-            # Use appropriate API style based on configuration
-            if hasattr(self, 'openai_legacy') and self.openai_legacy:
-                # Use legacy API style
-                import openai
+            if self.openai_legacy:
+                # Use legacy API
+                logger.info("Using legacy OpenAI API...")
                 response = openai.ChatCompletion.create(
-                    model=self.config.openai_model,
+                    model=self.config.openai_model if self.config else "gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": self.config.rocky_style_prompt},
+                        {"role": "system", "content": self.config.rocky_style_prompt if self.config else "Transform text to sound like Rocky from Project Hail Mary"},
                         {"role": "user", "content": text}
                     ],
                     temperature=0.7,
@@ -399,11 +386,12 @@ class RockyStyler:
                 )
                 styled = response.choices[0].message.content.strip()
             else:
-                # Use new client-based API
+                # Use new client API
+                logger.info("Using new OpenAI client API...")
                 response = self.openai_client.chat.completions.create(
-                    model=self.config.openai_model,
+                    model=self.config.openai_model if self.config else "gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": self.config.rocky_style_prompt},
+                        {"role": "system", "content": self.config.rocky_style_prompt if self.config else "Transform text to sound like Rocky from Project Hail Mary"},
                         {"role": "user", "content": text}
                     ],
                     temperature=0.7,
@@ -411,12 +399,10 @@ class RockyStyler:
                 )
                 styled = response.choices[0].message.content.strip()
             
-            logger.info(f"✅ OpenAI response: {text[:30]}... -> {styled[:50]}...")
+            logger.info(f"✅ OpenAI response: {styled[:50]}...")
             
-            # Apply text normalization to OpenAI output (numbers to words, etc.)
+            # Apply text normalization to OpenAI output
             normalized = self.text_normalizer.normalize(styled)
-            logger.info(f"🔧 Normalized: {styled[:30]}... -> {normalized[:50]}...")
-            
             return normalized
             
         except Exception as e:
