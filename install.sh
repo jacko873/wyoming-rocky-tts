@@ -539,20 +539,21 @@ Type=simple
 User=${ROCKY_USER}
 Group=${ROCKY_USER}
 WorkingDirectory=${APP_DIR}
-Environment=PATH=${VENV_DIR}/bin:\$PATH
-Environment=PYTHONPATH=${APP_DIR}
-ExecStart=${VENV_DIR}/bin/python -m src.wyoming_server --config ${DATA_DIR}/config.yaml
+Environment="PATH=${VENV_DIR}/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=${APP_DIR}"
+Environment="HOME=/home/${ROCKY_USER}"
+ExecStart=${VENV_DIR}/bin/python3 -m src.wyoming_server --config ${DATA_DIR}/config.yaml
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
-# Security settings
+# Security settings - relaxed for compatibility
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=${DATA_DIR} ${CACHE_DIR} ${APP_DIR}
+ProtectSystem=full
+ProtectHome=no
+ReadWritePaths=${DATA_DIR} ${CACHE_DIR} ${APP_DIR} /tmp
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictRealtime=yes
@@ -574,20 +575,21 @@ Type=simple
 User=${ROCKY_USER}
 Group=${ROCKY_USER}
 WorkingDirectory=${APP_DIR}
-Environment=PATH=${VENV_DIR}/bin:\$PATH
-Environment=PYTHONPATH=${APP_DIR}
-ExecStart=${VENV_DIR}/bin/python -m src.web_ui --port ${WEB_PORT} --host 0.0.0.0
+Environment="PATH=${VENV_DIR}/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=${APP_DIR}"
+Environment="HOME=/home/${ROCKY_USER}"
+ExecStart=${VENV_DIR}/bin/python3 -m src.web_ui --port ${WEB_PORT} --host 0.0.0.0
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
-# Security settings
+# Security settings - relaxed for compatibility
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=${DATA_DIR} ${CACHE_DIR} ${APP_DIR}
+ProtectSystem=full
+ProtectHome=no
+ReadWritePaths=${DATA_DIR} ${CACHE_DIR} ${APP_DIR} /tmp
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictRealtime=yes
@@ -679,6 +681,40 @@ chmod +x "${SCRIPT_DIR}/rocky-cache-stats"
 chmod +x "${SCRIPT_DIR}/rocky-clear-cache"
 print_status "Helper scripts installed"
 
+# Validate service files before starting
+echo ""
+print_info "Validating service configurations..."
+
+# Check if the Python executable exists and is executable
+if [ -x "${VENV_DIR}/bin/python3" ]; then
+    print_status "Python3 executable found in virtual environment"
+else
+    print_error "Python3 executable not found or not executable at: ${VENV_DIR}/bin/python3"
+    
+    # Try to fix by creating a symlink if python exists
+    if [ -x "${VENV_DIR}/bin/python" ]; then
+        print_info "Creating python3 symlink..."
+        ln -sf "${VENV_DIR}/bin/python" "${VENV_DIR}/bin/python3"
+    else
+        print_error "Virtual environment appears broken. Please run: rm -rf ${VENV_DIR} && sudo $0"
+        exit 1
+    fi
+fi
+
+# Test that the service command would work
+print_info "Testing service executables..."
+if su - "${ROCKY_USER}" -c "'${VENV_DIR}/bin/python3' -m src.wyoming_server --help >/dev/null 2>&1"; then
+    print_status "Wyoming server module is accessible"
+else
+    print_warning "Wyoming server module test failed - service may not start properly"
+fi
+
+if su - "${ROCKY_USER}" -c "'${VENV_DIR}/bin/python3' -m src.web_ui --help >/dev/null 2>&1"; then
+    print_status "Web UI module is accessible"
+else
+    print_warning "Web UI module test failed - service may not start properly"
+fi
+
 # Reload systemd and enable services
 echo ""
 print_info "Configuring services..."
@@ -704,6 +740,26 @@ if systemctl start "${SERVICE_NAME}"; then
 else
     print_error "Failed to start Wyoming TTS service"
     print_info "Check logs: journalctl -u ${SERVICE_NAME} -n 50"
+    
+    # Try to diagnose the problem
+    print_info "Attempting to diagnose service startup failure..."
+    
+    # Check if it's a 203/EXEC error
+    if journalctl -u "${SERVICE_NAME}" -n 10 | grep -q "status=203/EXEC"; then
+        print_error "Service failed with EXEC error - executable not found"
+        print_info "Checking executable path..."
+        
+        if [ ! -x "${VENV_DIR}/bin/python3" ]; then
+            print_error "Python3 not executable at: ${VENV_DIR}/bin/python3"
+        fi
+        
+        if [ ! -d "${APP_DIR}/src" ]; then
+            print_error "Source directory missing: ${APP_DIR}/src"
+        fi
+        
+        print_info "Manual test command:"
+        print_info "  sudo -u ${ROCKY_USER} ${VENV_DIR}/bin/python3 -m src.wyoming_server --config ${DATA_DIR}/config.yaml"
+    fi
 fi
 
 sleep 2  # Brief pause between service starts

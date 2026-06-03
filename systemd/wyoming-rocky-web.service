@@ -1,20 +1,31 @@
 [Unit]
 Description=Wyoming Rocky TTS Web UI
 After=network.target wyoming-rocky.service
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=rocky
 Group=rocky
 WorkingDirectory=/home/rocky/wyoming-rocky-tts
-Environment="PATH=/home/rocky/wyoming-rocky-tts/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-Environment="HOME=/home/rocky"
+Environment="PATH=/home/rocky/wyoming-rocky-tts/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONPATH=/home/rocky/wyoming-rocky-tts"
-ExecStart=/home/rocky/wyoming-rocky-tts/venv/bin/python -m src.web_ui --port 8088
+Environment="HOME=/home/rocky"
+ExecStart=/home/rocky/wyoming-rocky-tts/venv/bin/python3 -m src.web_ui --port 8088 --host 0.0.0.0
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
+
+# Security settings - relaxed for compatibility
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=no
+ReadWritePaths=/home/rocky/.rocky_tts /tmp
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
 
 [Install]
 WantedBy=multi-user.target

@@ -409,7 +409,20 @@ sudo chmod +x /home/rocky/wyoming-rocky-tts/scripts/*
 
 ### Service Issues
 
-**Service won't start**:
+**Service won't start (203/EXEC error)**:
+```bash
+# Run the automated fix script
+sudo ./fix_systemd_services.sh
+
+# This script will:
+# - Check Python executables in virtual environment
+# - Create python3 symlink if needed
+# - Update systemd service files
+# - Test service commands
+# - Restart services with diagnostics
+```
+
+**Manual service troubleshooting**:
 ```bash
 # Check detailed logs
 sudo journalctl -u wyoming-rocky -n 50 --no-pager
@@ -419,6 +432,9 @@ sudo -u rocky python3 -m src.config --validate
 
 # Check dependencies
 sudo -u rocky pip list | grep -E "(torch|TTS|wyoming)"
+
+# Test service command manually
+sudo -u rocky /home/rocky/wyoming-rocky-tts/venv/bin/python3 -m src.wyoming_server --config /home/rocky/.rocky_tts/config.yaml
 ```
 
 **Model loading fails**:
