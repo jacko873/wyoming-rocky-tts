@@ -145,10 +145,14 @@ class RockyStyler:
             (r"goodbye", "see you later. But I no see you later"),
             
             # Home Assistant specific
-            (r"turned on", "on. Good good good"),
-            (r"turned off", "off. Good good good"),
-            (r"switching on", "on. Good good good"),
-            (r"switching off", "off. Good good good"),
+            (r"turned on successfully", "on. Good good good"),
+            (r"turned off successfully", "off. Good good good"), 
+            (r"switched on successfully", "on. Good good good"),
+            (r"switched off successfully", "off. Good good good"),
+            (r"turned on", "on"),
+            (r"turned off", "off"),
+            (r"switching on", "on"),
+            (r"switching off", "off"),
             (r"has been turned", "now"),
             (r"has been set", "now set"),
             (r"successfully", "good good good"),
@@ -168,17 +172,25 @@ class RockyStyler:
         try:
             import openai
             api_key = os.getenv(self.config.openai_api_key_env)
+            logger.info(f"OpenAI initialization - looking for env var: {self.config.openai_api_key_env}")
+            logger.info(f"OpenAI API key found: {'Yes' if api_key else 'No'}")
             if api_key:
                 openai.api_key = api_key
                 self.openai_client = openai.OpenAI()
+                logger.info("✅ OpenAI client initialized successfully")
             else:
-                logger.warning("OpenAI API key not found, falling back to rules mode")
+                logger.warning(f"❌ OpenAI API key not found in environment variable '{self.config.openai_api_key_env}', falling back to rules mode")
                 self.mode = "rules"
-        except ImportError:
-            logger.warning("OpenAI library not installed, falling back to rules mode")
+        except ImportError as e:
+            logger.warning(f"❌ OpenAI library not installed: {e}, falling back to rules mode")
             self.mode = "rules"
     
     def apply_style(self, text: str) -> str:
+        """Apply Rocky styling to text. 
+        
+        Both rules and OpenAI modes include text normalization 
+        (numbers to words, temperature symbols, etc.)
+        """
         if self.mode == "off":
             return text
         
@@ -293,10 +305,14 @@ class RockyStyler:
         return output.strip()
     
     def _apply_openai_style(self, text: str) -> str:
+        logger.info(f"🤖 OpenAI styling requested for: {text[:50]}...")
+        
         if not hasattr(self, 'openai_client'):
+            logger.warning("❌ No OpenAI client available, using rules mode")
             return self._apply_rules_style(text)
         
         try:
+            logger.info(f"📡 Calling OpenAI {self.config.openai_model} API...")
             response = self.openai_client.chat.completions.create(
                 model=self.config.openai_model,
                 messages=[
@@ -308,9 +324,14 @@ class RockyStyler:
             )
             
             styled = response.choices[0].message.content.strip()
-            logger.info(f"OpenAI style applied: {text[:50]}... -> {styled[:50]}...")
-            return styled
+            logger.info(f"✅ OpenAI response: {text[:30]}... -> {styled[:50]}...")
+            
+            # Apply text normalization to OpenAI output (numbers to words, etc.)
+            normalized = self.text_normalizer.normalize(styled)
+            logger.info(f"🔧 Normalized: {styled[:30]}... -> {normalized[:50]}...")
+            
+            return normalized
             
         except Exception as e:
-            logger.error(f"OpenAI styling failed: {e}, falling back to rules")
+            logger.error(f"❌ OpenAI API call failed: {e}, falling back to rules")
             return self._apply_rules_style(text)

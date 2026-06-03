@@ -1,51 +1,34 @@
-# Pronunciation Overrides
-# Format: "original text": "spoken as"
-
-# Names
+API: A P I
+AQI: A Q I
 Aj: Ajay
-
-# Acronyms and Abbreviations
+CO2: C O two
+DNS: D N S
+Docker: Docker
+ElasticSearch: Elastic Search
 HA: Home Assistant
 HACS: H A C S
-LXC: L X C
-VM: V M
-API: A P I
-UI: U I
-URL: U R L
-IP: I P
-DNS: D N S
-SSH: S S H
 HTTP: H T T P
 HTTPS: H T T P S
-MQTT: M Q T T
-YAML: Yam L
+IP: I P
 JSON: Jay Son
-
-# Technology Terms
-Proxmox: Prox mox
-Docker: Docker
 Kubernetes: Koo ber net eez
-nginx: Engine X
-PostgreSQL: Post gres Q L
+LXC: L X C
+MQTT: M Q T T
 MySQL: My S Q L
+PM10: P M ten
+PM2.5: P M two point five
+PostgreSQL: Post gres Q L
+Proxmox: Prox mox
 Redis: Red iss
-ElasticSearch: Elastic Search
-
-# Environmental/Sensor Terms
-"PM2.5": P M two point five
-"PM10": P M ten
-AQI: A Q I
-VOC: V O C
-CO2: C O two
+SSH: S S H
+UI: U I
+URL: U R L
 UV: U V
-
-# Common Media Player Names (adjust to your setup)
-media_player.living_room: living room speaker
+VM: V M
+VOC: V O C
+YAML: Yam L
 media_player.bedroom: bedroom speaker
 media_player.kitchen: kitchen speaker
-
-# Unit Symbols
-"° F": degrees fahrenheit
-"°F": degrees fahrenheit
-"° C": degrees celsius  
-"°C": degrees celsius
+media_player.living_room: living room speaker
+nginx: Engine X
+robot: rowbaat

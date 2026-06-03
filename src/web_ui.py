@@ -11,10 +11,11 @@ import tempfile
 import subprocess
 
 from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import yaml
+import requests
 
 from .text_normalizer import TextNormalizer
 from .rocky_styler import RockyStyler
@@ -30,16 +31,54 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
+
+# Add middleware for proxy compatibility
+@app.middleware("http")
+async def proxy_middleware(request: Request, call_next):
+    # Trust proxy headers
+    if "x-forwarded-host" in request.headers:
+        request.scope["server"] = (request.headers["x-forwarded-host"], None)
+    if "x-forwarded-proto" in request.headers:
+        request.scope["scheme"] = request.headers["x-forwarded-proto"]
+    
+    # Add headers for proxy compatibility
+    response = await call_next(request)
+    
+    # Disable CSRF protection for proxy environments
+    response.headers["X-Frame-Options"] = "ALLOWALL"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    
+    # Add cache control to prevent stale CSRF tokens
+    if request.url.path.startswith("api/"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    
+    return response
 
 # Global variables to be initialized
 config: Optional[Config] = None
 normalizer: Optional[TextNormalizer] = None
 cache_manager: Optional[CacheManager] = None
+rocky_tts: Optional[object] = None
 
 @app.on_event("startup")
 async def startup():
-    global config, normalizer, cache_manager
+    global config, normalizer, cache_manager, rocky_tts
+    
+    # Load environment variables from .env file if it exists
+    env_file = Path(".env")
+    if env_file.exists():
+        logger.info("Loading environment variables from .env file")
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key.strip()] = value.strip()
+                    logger.info(f"Loaded env var: {key.strip()}")
     
     config_path = Path.home() / '.rocky_tts' / 'config.yaml'
     config = Config.load(config_path)
@@ -47,10 +86,25 @@ async def startup():
     normalizer = TextNormalizer(Path(config.data_dir) / "overrides.yaml")
     cache_manager = CacheManager(Path(config.cache_dir))
     
+    # Initialize Rocky TTS instance once during startup
+    try:
+        from src.wyoming_server import RockyTTS
+        logger.info("Loading Rocky TTS model...")
+        rocky_tts = RockyTTS(config)
+        logger.info("Rocky TTS model loaded successfully")
+    except Exception as e:
+        logger.warning(f"Could not load Rocky TTS: {e}")
+        rocky_tts = None
+    
     logger.info("Web UI started")
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
+    """
+    Web UI home page - uses relative URLs for proxy compatibility.
+    All API calls use 'api/*' paths (not absolute URLs) so this works
+    behind reverse proxies, subpaths, and different domains.
+    """
     return '''
 <!DOCTYPE html>
 <html>
@@ -58,6 +112,12 @@ async def home():
     <title>Rocky TTS Control Panel</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="same-origin">
+    <link rel="icon" type="image/jpeg" href="favicon.ico">
+    <!-- 
+    IMPORTANT: All URLs in this page use relative paths (e.g., 'api/status') 
+    for proxy compatibility. Do not use absolute URLs like 'http://localhost:8088/api/...'
+    -->
     <style>
         :root {
             --primary: #4CAF50;
@@ -263,7 +323,7 @@ async def home():
     </style>
 </head>
 <body>
-    <h1><span class="emoji">🗿</span> Rocky TTS Control Panel</h1>
+    <h1><img src="rocky-image.jpg" style="height: 40px; width: 40px; object-fit: cover; border-radius: 50%; margin-right: 10px; vertical-align: middle;"> Rocky TTS Control Panel</h1>
     
     <div class="grid">
         <div class="card">
@@ -288,10 +348,14 @@ async def home():
         <form id="test-form">
             <textarea name="text" placeholder="Enter any text to transform into Rocky's speaking style..." rows="4" style="font-size: 16px; width: 100%; padding: 12px;">The temperature is 72°F and the lights are turned on. Would you like me to adjust anything?</textarea>
             
-            <div style="margin: 15px 0; display: flex; gap: 20px; align-items: center;">
-                <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                    <input type="checkbox" name="use_style" checked>
-                    <span>Apply Rocky Style</span>
+            <div style="margin: 15px 0; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+                <label style="display: flex; align-items: center; gap: 5px;">
+                    Rocky Style:
+                    <select name="style_mode" style="padding: 5px; border-radius: 4px; margin-left: 8px;">
+                        <option value="off">Off</option>
+                        <option value="rules" selected>Rules-based</option>
+                        <option value="openai">🤖 OpenAI Mode</option>
+                    </select>
                 </label>
                 <label style="display: flex; align-items: center; gap: 5px;">
                     Voice Speed:
@@ -372,7 +436,7 @@ async def home():
         
         async function loadStatus() {
             try {
-                const resp = await fetch('/api/status');
+                const resp = await fetch('api/status');
                 const data = await resp.json();
                 document.getElementById('status').innerHTML = `
                     <div style="margin: 20px 0;">
@@ -402,7 +466,7 @@ async def home():
         
         async function loadCacheStats() {
             try {
-                const resp = await fetch('/api/cache/stats');
+                const resp = await fetch('api/cache/stats');
                 const data = await resp.json();
                 document.getElementById('cache-stats').innerHTML = `
                     <div class="stats-grid">
@@ -448,7 +512,7 @@ async def home():
         async function clearCache() {
             if (!confirm('Are you sure you want to clear all cache entries?')) return;
             try {
-                await fetch('/api/cache/clear', { method: 'POST' });
+                await fetch('api/cache/clear', { method: 'POST' });
                 alert('Cache cleared successfully');
                 loadCacheStats();
             } catch(e) {
@@ -458,7 +522,7 @@ async def home():
         
         async function deleteCache(key) {
             try {
-                await fetch(`/api/cache/${key}`, { method: 'DELETE' });
+                await fetch(`api/cache/${key}`, { method: 'DELETE' });
                 loadCacheStats();
             } catch(e) {
                 alert('Error deleting cache entry');
@@ -467,7 +531,7 @@ async def home():
         
         async function loadOverrides() {
             try {
-                const resp = await fetch('/api/overrides');
+                const resp = await fetch('api/overrides');
                 const data = await resp.json();
                 
                 if (Object.keys(data).length === 0) {
@@ -492,7 +556,7 @@ async def home():
         
         async function deleteOverride(key) {
             try {
-                await fetch(`/api/overrides/${encodeURIComponent(key)}`, { method: 'DELETE' });
+                await fetch(`api/overrides/${encodeURIComponent(key)}`, { method: 'DELETE' });
                 loadOverrides();
             } catch(e) {
                 alert('Error deleting override');
@@ -501,7 +565,7 @@ async def home():
         
         async function loadConfig() {
             try {
-                const resp = await fetch('/api/config');
+                const resp = await fetch('api/config');
                 const data = await resp.json();
                 document.getElementById('config-display').textContent = JSON.stringify(data, null, 2);
             } catch(e) {
@@ -510,7 +574,7 @@ async def home():
         }
         
         function downloadConfig() {
-            window.open('/api/config/download', '_blank');
+            window.open('api/config/download', '_blank');
         }
         
         function setExample(text) {
@@ -536,9 +600,12 @@ async def home():
             
             try {
                 const formData = new FormData(e.target);
-                const resp = await fetch('/api/test', {
+                const resp = await fetch('api/test', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
                 });
                 const result = await resp.json();
                 
@@ -563,8 +630,8 @@ async def home():
                 
                 document.getElementById('pipeline-result').innerHTML = html;
                 
-                // Auto-generate audio if checkbox is checked
-                if (document.querySelector('[name="use_style"]').checked) {
+                // Auto-generate audio if Rocky style is enabled
+                if (document.querySelector('[name="style_mode"]').value !== 'off') {
                     setTimeout(() => synthesizeTest(), 500);
                 }
             } finally {
@@ -584,9 +651,12 @@ async def home():
             }
             
             try {
-                await fetch('/api/overrides', {
+                await fetch('api/overrides', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
                 });
                 loadOverrides();
                 e.target.reset();
@@ -601,7 +671,7 @@ async def home():
             // Get the styled text if available, otherwise use the input text
             const styledTextElement = document.querySelector('.pipeline-stage:nth-child(2) div:last-child');
             const text = styledTextElement ? styledTextElement.textContent : document.querySelector('[name="text"]').value;
-            const useStyle = document.querySelector('[name="use_style"]').checked;
+            const styleMode = document.querySelector('[name="style_mode"]').value;
             const voiceSpeed = document.querySelector('[name="voice_speed"]').value;
             
             if (!text) {
@@ -620,12 +690,12 @@ async def home():
             document.getElementById('audio-status').innerHTML = '⏳ Generating audio with Rocky voice...';
             
             try {
-                const resp = await fetch('/api/synthesize', {
+                const resp = await fetch('api/synthesize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         text: text, 
-                        use_style: useStyle,
+                        style_mode: styleMode,
                         voice_speed: voiceSpeed
                     })
                 });
@@ -683,20 +753,78 @@ async def home():
 </html>
 '''
 
+@app.get("/favicon.ico")
+async def get_favicon():
+    """Serve Rocky plush favicon"""
+    # Look for the icon in the data directory
+    rocky_icon_path = Path("data/rocky_icon.jpg")
+    
+    # If not found locally, try to download it
+    if not rocky_icon_path.exists():
+        try:
+            response = requests.get("https://media.gamestop.com/i/gamestop/20034410/Project-Hail-Mary-Rocky-8-in-Collector-Plush?w=32&h=32&fmt=auto", timeout=5)
+            if response.status_code == 200:
+                with open(rocky_icon_path, "wb") as f:
+                    f.write(response.content)
+        except:
+            pass  # Fallback to empty icon if download fails
+    
+    # Serve the icon if it exists
+    if rocky_icon_path.exists():
+        with open(rocky_icon_path, "rb") as f:
+            return Response(content=f.read(), media_type="image/jpeg")
+    
+    # Fallback empty icon
+    return Response(content=b"", media_type="image/x-icon")
+
+@app.get("/rocky-image.jpg")
+async def get_rocky_image():
+    """Serve Rocky plush image for the page"""
+    # Look for a larger version of the image
+    rocky_image_path = Path("data/rocky_image.jpg")
+    
+    # If not found locally, try to download a larger version
+    if not rocky_image_path.exists():
+        try:
+            response = requests.get("https://media.gamestop.com/i/gamestop/20034410/Project-Hail-Mary-Rocky-8-in-Collector-Plush?w=128&h=128&fmt=auto", timeout=5)
+            if response.status_code == 200:
+                with open(rocky_image_path, "wb") as f:
+                    f.write(response.content)
+        except:
+            # Fallback to the smaller icon if download fails
+            rocky_image_path = Path("data/rocky_icon.jpg")
+    
+    # Serve the image if it exists
+    if rocky_image_path.exists():
+        with open(rocky_image_path, "rb") as f:
+            return Response(content=f.read(), media_type="image/jpeg")
+    
+    # Fallback empty response
+    return Response(content=b"", media_type="image/jpeg")
+
 @app.get("/api/status")
 async def get_status():
     global config
     
-    import subprocess
+    import socket
+    import asyncio
+    
+    # Check if Wyoming server is actually responding on its port
+    wyoming_running = False
     try:
-        result = subprocess.run(['systemctl', 'is-active', 'wyoming-rocky'], 
-                              capture_output=True, text=True)
-        running = result.stdout.strip() == 'active'
+        # Try to connect to Wyoming server port
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection('localhost', config.wyoming_port),
+            timeout=2.0
+        )
+        wyoming_running = True
+        writer.close()
+        await writer.wait_closed()
     except:
-        running = False
+        wyoming_running = False
     
     return {
-        "running": running,
+        "running": wyoming_running,
         "wyoming_port": config.wyoming_port,
         "web_port": config.web_port,
         "style_mode": config.style_mode
@@ -797,45 +925,57 @@ async def download_config():
     )
 
 @app.post("/api/test")
-async def test_text(text: str = Form(...), use_style: bool = Form(False)):
+async def test_text(text: str = Form(...), style_mode: str = Form("rules")):
     global config, normalizer
     
-    styler = RockyStyler("rules" if use_style else "off", config)
+    # Validate style mode
+    if style_mode not in ["off", "rules", "openai"]:
+        style_mode = "rules"
+    
+    styler = RockyStyler(style_mode, config)
     styled = styler.apply_style(text)
     normalized = normalizer.normalize(styled)
     
     import hashlib
-    cache_key = hashlib.sha256(f"{text}:{'rules' if use_style else 'off'}:test".encode()).hexdigest()
+    cache_key = hashlib.sha256(f"{text}:{style_mode}:test".encode()).hexdigest()
     
     return {
         "original": text,
         "styled": styled,
         "normalized": normalized,
-        "cache_key": cache_key
+        "cache_key": cache_key,
+        "mode": style_mode
     }
 
 @app.post("/api/synthesize")
 async def synthesize(request: Request):
     data = await request.json()
     text = data.get("text", "")
-    use_style = data.get("use_style", True)
+    style_mode = data.get("style_mode", data.get("use_style", True))  # Support old and new format
     voice_speed = data.get("voice_speed", "150")
+    
+    # Convert legacy boolean to style mode
+    if isinstance(style_mode, bool):
+        style_mode = "rules" if style_mode else "off"
+    elif style_mode not in ["off", "rules", "openai"]:
+        style_mode = "rules"
     
     if not text:
         raise HTTPException(status_code=400, detail="No text provided")
     
-    # Use the actual Rocky TTS with YourTTS model
+    # Use the global Rocky TTS instance for faster synthesis
+    global rocky_tts
+    
+    if rocky_tts is None:
+        raise HTTPException(status_code=503, detail="Rocky TTS not available")
+    
     try:
-        # Import the actual TTS components
-        from src.wyoming_server import RockyTTS
-        from src.config import Config as TtsConfig
-        
-        # Load configuration
-        config_path = Path(config.data_dir) / "config.yaml"
-        tts_config = TtsConfig.load(config_path)
+        # Temporarily adjust configuration for this request
+        original_style_mode = rocky_tts.config.style_mode
+        original_audio_rate = rocky_tts.config.audio_rate
         
         # Override style mode based on request
-        tts_config.style_mode = "rules" if use_style else "off"
+        rocky_tts.config.style_mode = style_mode
         
         # Adjust audio rate based on voice speed
         speed_map = {
@@ -843,13 +983,18 @@ async def synthesize(request: Request):
             "150": 22050,  # Normal  
             "180": 24000   # Fast
         }
-        tts_config.audio_rate = speed_map.get(voice_speed, 22050)
+        rocky_tts.config.audio_rate = speed_map.get(voice_speed, 22050)
         
-        # Create TTS instance (this will load YourTTS model)
-        tts = RockyTTS(tts_config)
+        # Update the styler's mode
+        rocky_tts.styler.mode = rocky_tts.config.style_mode
         
-        # Generate audio using YourTTS with Rocky voice
-        audio_data = tts.synthesize(text, use_cache=True)
+        # Generate audio using the cached TTS instance
+        audio_data = rocky_tts.synthesize(text, use_cache=True)
+        
+        # Restore original configuration
+        rocky_tts.config.style_mode = original_style_mode
+        rocky_tts.config.audio_rate = original_audio_rate
+        rocky_tts.styler.mode = original_style_mode
         
         return StreamingResponse(
             io.BytesIO(audio_data),

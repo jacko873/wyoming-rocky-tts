@@ -17,7 +17,7 @@ from TTS.api import TTS
 
 from wyoming.server import AsyncServer
 from wyoming.info import Describe, Info, Attribution, TtsProgram, TtsVoice
-from wyoming.tts import Synthesize, SynthesizeRaw
+from wyoming.tts import Synthesize
 
 from .text_normalizer import TextNormalizer
 from .rocky_styler import RockyStyler
@@ -132,15 +132,21 @@ class RockyTTS:
         return audio_data
     
     def _process_audio(self, input_path: str, output_path: Path):
-        cmd = [
-            'ffmpeg', '-y', '-i', input_path,
-            '-af', self.config.ffmpeg_filters,
-            '-ar', str(self.config.audio_rate),
-            '-ac', '1',
-            '-c:a', 'pcm_s16le',
-            str(output_path)
-        ]
-        subprocess.run(cmd, capture_output=True, check=True)
+        try:
+            cmd = [
+                'ffmpeg', '-y', '-i', input_path,
+                '-af', self.config.ffmpeg_filters,
+                '-ar', str(self.config.audio_rate),
+                '-ac', '1',
+                '-c:a', 'pcm_s16le',
+                str(output_path)
+            ]
+            subprocess.run(cmd, capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            logger.warning(f"FFmpeg processing failed: {e}, using raw audio")
+            # Copy raw audio as fallback
+            import shutil
+            shutil.copy2(input_path, output_path)
 
 class RockyWyomingHandler:
     def __init__(self, tts: RockyTTS):
@@ -175,7 +181,7 @@ class RockyWyomingHandler:
             )
             return info
         
-        elif isinstance(event, (Synthesize, SynthesizeRaw)):
+        elif isinstance(event, Synthesize):
             text = event.text.strip()
             
             if not text:
@@ -212,7 +218,13 @@ async def main():
     logger.info(f"Starting Wyoming server on {config.wyoming_host}:{config.wyoming_port}")
     server = AsyncServer.from_uri(f"tcp://{config.wyoming_host}:{config.wyoming_port}")
     
-    await server.run(partial_event=handler.handle_event)
+    async def handler_factory(reader, writer):
+        async for event in AsyncServer.read_events(reader):
+            response = await handler.handle_event(event)
+            if response is not None:
+                await AsyncServer.write_event(response, writer)
+    
+    await server.run(handler_factory)
 
 if __name__ == '__main__':
     asyncio.run(main())

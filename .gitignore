@@ -57,6 +57,11 @@ cache.db
 /config/config.yaml
 /config/overrides.yaml
 
+# API Keys and secrets
+.env
+*.key
+secrets.yaml
+
 # Temporary test files
 debug_*.py
 test_numbers.py

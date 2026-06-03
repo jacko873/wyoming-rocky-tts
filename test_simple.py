@@ -65,12 +65,14 @@ def test_rocky_examples():
     
     ha_responses = [
         "The temperature is set to 72 degrees",
+        "The temperature is set to 72°F",
         "Turning on the living room lights",
         "I couldn't find a device named bedroom fan",
         "The garage door is now closed",
         "Would you like me to turn off all lights?",
         "The automation has been triggered successfully",
         "Sorry, I don't understand what you want me to do",
+        "The temperature is 72°F and the lights are turned on. Would you like me to adjust anything?"
     ]
     
     print("\nHome Assistant → Rocky Style:\n")

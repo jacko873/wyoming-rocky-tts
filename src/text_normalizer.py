@@ -48,7 +48,10 @@ class TextNormalizer:
         # Step 7: Clean up punctuation for TTS
         text = self._clean_punctuation(text)
         
-        # Step 8: Clean up extra spaces
+        # Step 8: Clean up hyphens in numbers for TTS
+        text = self._clean_number_hyphens(text)
+        
+        # Step 9: Clean up extra spaces
         text = ' '.join(text.split())
         
         return text
@@ -67,12 +70,16 @@ class TextNormalizer:
         def format_time(match):
             hour = match.group(1)
             minute = match.group(2)
-            period = match.group(3).upper() if match.group(3) else ""
+            period = match.group(3)
             
+            # Split period into individual letters for TTS
+            if period:
+                period_formatted = ' '.join(period.upper())
+                
             if minute == "00":
-                return f"{hour} {period}".strip()
+                return f"{hour} {period_formatted}".strip() if period else hour
             else:
-                return f"{hour} {minute} {period}".strip()
+                return f"{hour} {minute} {period_formatted}".strip() if period else f"{hour} {minute}"
         
         text = re.sub(r'(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?', format_time, text)
         return text
@@ -97,28 +104,28 @@ class TextNormalizer:
         return text
     
     def _normalize_units(self, text: str) -> str:
-        units = {
-            ' mph': ' miles per hour',
-            ' kph': ' kilometers per hour',
-            ' kmh': ' kilometers per hour',
-            ' ft': ' feet',
-            ' m ': ' meters ',
-            ' m.': ' meters.',
-            ' km': ' kilometers',
-            ' mi': ' miles',
-            ' kg': ' kilograms',
-            ' lb': ' pounds',
-            ' lbs': ' pounds',
-            ' oz': ' ounces',
-            ' ml': ' milliliters',
-            ' l': ' liters',
-            ' gal': ' gallons',
-            'µg/m³': 'micrograms per cubic meter',
-            'mg/m³': 'milligrams per cubic meter'
-        }
+        # Use regex with word boundaries for safer replacement
+        units = [
+            (r'\bmph\b', 'miles per hour'),
+            (r'\bkph\b', 'kilometers per hour'),
+            (r'\bkmh\b', 'kilometers per hour'),
+            (r'\bft\b', 'feet'),
+            (r'\bm\b', 'meters'),
+            (r'\bkm\b', 'kilometers'),
+            (r'\bmi\b', 'miles'),
+            (r'\bkg\b', 'kilograms'),
+            (r'\blb\b', 'pounds'),
+            (r'\blbs\b', 'pounds'),
+            (r'\boz\b', 'ounces'),
+            (r'\bml\b', 'milliliters'),
+            (r'\bl\b', 'liters'),
+            (r'\bgal\b', 'gallons'),
+            (r'µg/m³', 'micrograms per cubic meter'),
+            (r'mg/m³', 'milligrams per cubic meter')
+        ]
         
-        for abbr, full in units.items():
-            text = text.replace(abbr, full)
+        for pattern, replacement in units:
+            text = re.sub(pattern, replacement, text)
         
         return text
     
@@ -130,4 +137,17 @@ class TextNormalizer:
         text = text.replace('*', ' ')
         text = text.replace('_', ' ')
         text = re.sub(r'[^\w\s\-\.,!?;:\']', ' ', text)
+        return text
+    
+    def _clean_number_hyphens(self, text: str) -> str:
+        # Remove hyphens from number words for better TTS pronunciation
+        number_words = [
+            'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety',
+            'hundred', 'thousand', 'million', 'billion'
+        ]
+        
+        for word in number_words:
+            # Replace hyphenated versions with spaced versions
+            text = re.sub(f'{word}-', f'{word} ', text)
+        
         return text
