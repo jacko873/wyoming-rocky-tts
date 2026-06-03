@@ -1,23 +1,24 @@
-# Testing Wyoming Rocky TTS
+# Wyoming Rocky TTS - Testing Guide
 
-## Quick Test
+## Quick Tests
 
-Run the simple test to verify Rocky style transformations:
-
+### Basic Rocky Transformations
 ```bash
 python3 test_simple.py
 ```
+No dependencies required - tests core Rocky speech patterns.
 
-This test requires no external dependencies and shows how text is transformed.
-
-## Full Test Suite
-
-For complete testing (requires pyyaml and num2words):
-
+### Comprehensive Pattern Tests
 ```bash
-pip install pyyaml num2words
+python3 test_rocky_examples.py
+```
+Tests all transformation rules and edge cases.
+
+### Full System Test
+```bash
 python3 test_local.py
 ```
+Complete test suite (requires pyyaml and num2words).
 
 ## Testing the Installation
 

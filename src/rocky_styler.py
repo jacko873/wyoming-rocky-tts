@@ -2,6 +2,8 @@ import re
 import logging
 from typing import Dict, Optional, List, Tuple
 import os
+from pathlib import Path
+from .text_normalizer import TextNormalizer
 
 logger = logging.getLogger(__name__)
 
@@ -9,6 +11,15 @@ class RockyStyler:
     def __init__(self, mode: str = "rules", config: Optional[object] = None):
         self.mode = mode
         self.config = config
+        
+        # Initialize text normalizer
+        overrides_file = None
+        if config and hasattr(config, 'overrides_file'):
+            overrides_file = Path(config.overrides_file)
+        elif config and hasattr(config, 'data_dir'):
+            overrides_file = Path(config.data_dir) / "overrides.yaml"
+        
+        self.text_normalizer = TextNormalizer(overrides_file)
         
         # Articles and auxiliaries to strip
         self.articles = {'a', 'an', 'the'}
@@ -100,7 +111,7 @@ class RockyStyler:
             (r"need to\s+", "need "),
             (r"have to\s+", "must "),
             (r"try to\s+", "try "),
-            (r"able to\s+", "can "),
+            (r"\bable to\s+", "can "),
             (r"in order to\s+", "to "),
             (r"because of\s+", "because "),
             (r"a lot of\s+", "many "),
@@ -142,7 +153,7 @@ class RockyStyler:
             (r"has been set", "now set"),
             (r"successfully", "good good good"),
             (r"failed to", "no can"),
-            (r"\bunable to", "no can"),
+            (r"unable to", "no can"),
             (r"couldn't find", "no see"),
             (r"could not find", "no see"),
             (r"can't find", "no find"),
@@ -180,8 +191,11 @@ class RockyStyler:
         """Transform English text into Rocky's speech patterns."""
         if not text or not text.strip():
             return text
+        
+        # Step 1: Normalize text (numbers to words, temperatures, etc.)
+        text = self.text_normalizer.normalize(text)
 
-        # Work sentence by sentence
+        # Step 2: Work sentence by sentence
         sentences = re.split(r'(?<=[.!?])\s+', text.strip())
         result = []
 
@@ -206,26 +220,41 @@ class RockyStyler:
             words = s.split()
             new_words = []
             
+            # Track which words are part of existing tripled sequences
+            skip_indices = set()
+            
+            # Pre-scan for existing tripled patterns to avoid re-tripling
+            for i in range(len(words) - 2):
+                word1 = words[i].lower().rstrip('.,!?;:')
+                word2 = words[i+1].lower().rstrip('.,!?;:')
+                word3 = words[i+2].lower().rstrip('.,!?;:')
+                
+                if word1 == word2 == word3:
+                    # Mark all three as already tripled
+                    skip_indices.update([i, i+1, i+2])
+            
             for i, w in enumerate(words):
                 # Extract punctuation
                 lower = w.lower().rstrip('.,!?;:')
                 punct = w[len(lower):] if len(w) > len(lower) else ''
 
-                # Skip if this word is already part of a tripled pattern
-                if i >= 2 and lower == words[i-1].lower().rstrip('.,!?;:') == words[i-2].lower().rstrip('.,!?;:'):
-                    new_words.append(w)
-                    continue
-                if i >= 1 and i < len(words)-1 and lower == words[i-1].lower().rstrip('.,!?;:') == words[i+1].lower().rstrip('.,!?;:'):
+                # Skip if this word is already marked as part of a tripled sequence
+                if i in skip_indices:
                     new_words.append(w)
                     continue
 
                 # Handle contractions
                 if lower in self.contractions:
                     new_words.append(self.contractions[lower] + punct)
-                # Handle emphasis words (tripling) - but not if already tripled
-                elif lower in self.emphasis_map and not (i > 0 and lower == words[i-1].lower().rstrip('.,!?;:')):
+                # Handle emphasis words (tripling) - only if not already tripled
+                elif lower in self.emphasis_map:
                     new_words.append(self.emphasis_map[lower] + punct)
-                # Drop articles
+                    # Mark the added words as processed to avoid further tripling
+                    added_words = self.emphasis_map[lower].split()
+                    for j in range(1, len(added_words)):
+                        if i + j < len(words):
+                            skip_indices.add(i + j)
+                # Drop articles (including at sentence start)
                 elif lower in self.articles:
                     continue
                 # Drop auxiliaries (but keep at sentence start and end for some constructs)
