@@ -369,17 +369,32 @@ MAX_RETRIES=3
 RETRY_COUNT=0
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if su - "$ROCKY_USER" -c "cd '$APP_DIR' && '$VENV_DIR/bin/pip' install -r requirements.txt"; then
+    if su - "$ROCKY_USER" -c "cd '$APP_DIR' && '$VENV_DIR/bin/pip' install --no-cache-dir -r requirements.txt 2>&1"; then
         print_status "Python dependencies installed successfully"
         break
     else
         RETRY_COUNT=$((RETRY_COUNT + 1))
         if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
             print_warning "Dependency installation failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
+            
+            # Check for common dependency conflicts
+            if su - "$ROCKY_USER" -c "cd '$APP_DIR' && '$VENV_DIR/bin/pip' install -r requirements.txt 2>&1" | grep -q "scipy"; then
+                print_warning "Detected scipy conflict, attempting to resolve..."
+                su - "$ROCKY_USER" -c "'$VENV_DIR/bin/pip' uninstall -y scipy 2>/dev/null"
+                su - "$ROCKY_USER" -c "'$VENV_DIR/bin/pip' install 'scipy>=1.11.2' 2>/dev/null"
+            fi
+            
             sleep 5
         else
             print_error "Failed to install Python dependencies after $MAX_RETRIES attempts"
-            print_error "Try running: sudo -u $ROCKY_USER '$VENV_DIR/bin/pip' install -r '$APP_DIR/requirements.txt'"
+            print_error "Common issues:"
+            print_error "  1. Dependency conflicts (check requirements.txt)"
+            print_error "  2. Network issues (check internet connection)"
+            print_error "  3. Insufficient memory (need 4GB+ RAM)"
+            print_error ""
+            print_error "Try running manually:"
+            print_error "  sudo -u $ROCKY_USER '$VENV_DIR/bin/pip' install --upgrade pip"
+            print_error "  sudo -u $ROCKY_USER '$VENV_DIR/bin/pip' install -r '$APP_DIR/requirements.txt'"
             exit 1
         fi
     fi
