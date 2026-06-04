@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 set -e
 
@@ -6,6 +6,7 @@ set -e
 # pulls the latest version, updates dependencies, restarts services.
 #
 # Usage: sudo ./update.sh [--clear-cache]
+# (POSIX sh compatible — works with sh, dash, or bash)
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -13,10 +14,10 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-print_status()  { echo -e "${GREEN}✓${NC} $1"; }
-print_warning() { echo -e "${YELLOW}⚠${NC} $1"; }
-print_error()   { echo -e "${RED}✗${NC} $1"; }
-print_info()    { echo -e "${BLUE}ℹ${NC} $1"; }
+print_status()  { printf "${GREEN}✓${NC} %s\n" "$1"; }
+print_warning() { printf "${YELLOW}⚠${NC} %s\n" "$1"; }
+print_error()   { printf "${RED}✗${NC} %s\n" "$1"; }
+print_info()    { printf "${BLUE}ℹ${NC} %s\n" "$1"; }
 
 # Must match install.sh
 ROCKY_USER="rocky"
@@ -25,14 +26,14 @@ DATA_DIR="/home/${ROCKY_USER}/.rocky_tts"
 CACHE_DIR="${DATA_DIR}/cache"
 VENV_DIR="${APP_DIR}/venv"
 WYOMING_PORT="${ROCKY_WYOMING_PORT:-10202}"
-SERVICES=("wyoming-rocky" "wyoming-rocky-web")
+SERVICES="wyoming-rocky wyoming-rocky-web"
 
 CLEAR_CACHE=false
 if [ "$1" = "--clear-cache" ]; then
     CLEAR_CACHE=true
 fi
 
-if [ "$EUID" -ne 0 ]; then
+if [ "$(id -u)" -ne 0 ]; then
     print_error "This script must be run as root (use sudo)"
     echo "Usage: sudo ./update.sh [--clear-cache]"
     exit 1
@@ -67,19 +68,18 @@ if ! su - "$ROCKY_USER" -c "'$VENV_DIR/bin/pip' install -q -r '$APP_DIR/requirem
 fi
 
 # Update systemd units if the repo versions changed
-if ls "$APP_DIR"/systemd/*.service >/dev/null 2>&1; then
-    UNITS_CHANGED=false
-    for unit in "$APP_DIR"/systemd/*.service; do
-        name=$(basename "$unit")
-        if ! cmp -s "$unit" "/etc/systemd/system/$name"; then
-            cp "$unit" "/etc/systemd/system/$name"
-            UNITS_CHANGED=true
-            print_status "Updated systemd unit: $name"
-        fi
-    done
-    if [ "$UNITS_CHANGED" = true ]; then
-        systemctl daemon-reload
+UNITS_CHANGED=false
+for unit in "$APP_DIR"/systemd/*.service; do
+    [ -f "$unit" ] || continue
+    name=$(basename "$unit")
+    if ! cmp -s "$unit" "/etc/systemd/system/$name"; then
+        cp "$unit" "/etc/systemd/system/$name"
+        UNITS_CHANGED=true
+        print_status "Updated systemd unit: $name"
     fi
+done
+if [ "$UNITS_CHANGED" = true ]; then
+    systemctl daemon-reload
 fi
 
 # Optionally clear the audio cache
@@ -90,9 +90,8 @@ if [ "$CLEAR_CACHE" = true ]; then
 fi
 
 # Restart services
-for svc in "${SERVICES[@]}"; do
-    if systemctl list-unit-files "${svc}.service" >/dev/null 2>&1 && \
-       systemctl cat "${svc}.service" >/dev/null 2>&1; then
+for svc in $SERVICES; do
+    if systemctl cat "${svc}.service" >/dev/null 2>&1; then
         print_info "Restarting ${svc}..."
         systemctl restart "$svc"
     else
@@ -104,7 +103,7 @@ done
 print_info "Waiting for Wyoming server on port ${WYOMING_PORT} (model loading can take a few minutes)..."
 WAITED=0
 TIMEOUT=600
-until ss -tln | grep -q ":${WYOMING_PORT} "; do
+while ! ss -tln | grep -q ":${WYOMING_PORT} "; do
     if ! systemctl is-active --quiet wyoming-rocky; then
         print_error "wyoming-rocky service died during startup. Last log lines:"
         journalctl -u wyoming-rocky -n 25 --no-pager
@@ -117,7 +116,7 @@ until ss -tln | grep -q ":${WYOMING_PORT} "; do
     fi
     sleep 5
     WAITED=$((WAITED + 5))
-    echo -n "."
+    printf "."
 done
 echo ""
 print_status "Wyoming server is listening on port ${WYOMING_PORT}"
