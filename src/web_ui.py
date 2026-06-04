@@ -1030,28 +1030,29 @@ async def synthesize(request: Request):
         # Temporarily adjust configuration for this request
         original_style_mode = rocky_tts.config.style_mode
         original_audio_rate = rocky_tts.config.audio_rate
-        
-        # Override style mode based on request
-        rocky_tts.config.style_mode = style_mode
-        
-        # Adjust audio rate based on voice speed
-        speed_map = {
-            "120": 20000,  # Slow
-            "150": 22050,  # Normal  
-            "180": 24000   # Fast
-        }
-        rocky_tts.config.audio_rate = speed_map.get(voice_speed, 22050)
-        
-        # Update the styler's mode
-        rocky_tts.styler.mode = rocky_tts.config.style_mode
-        
-        # Generate audio using the cached TTS instance
-        audio_data = rocky_tts.synthesize(text, use_cache=True)
-        
-        # Restore original configuration
-        rocky_tts.config.style_mode = original_style_mode
-        rocky_tts.config.audio_rate = original_audio_rate
-        rocky_tts.styler.mode = original_style_mode
+
+        try:
+            # Override style mode based on request
+            rocky_tts.config.style_mode = style_mode
+
+            # Adjust audio rate based on voice speed
+            speed_map = {
+                "120": 20000,  # Slow
+                "150": 22050,  # Normal
+                "180": 24000   # Fast
+            }
+            rocky_tts.config.audio_rate = speed_map.get(voice_speed, 22050)
+
+            # Update the styler's mode (initializes the OpenAI client if needed)
+            rocky_tts.styler.set_mode(style_mode)
+
+            # Generate audio using the cached TTS instance
+            audio_data = rocky_tts.synthesize(text, use_cache=True)
+        finally:
+            # Restore original configuration
+            rocky_tts.config.style_mode = original_style_mode
+            rocky_tts.config.audio_rate = original_audio_rate
+            rocky_tts.styler.set_mode(original_style_mode)
         
         return StreamingResponse(
             io.BytesIO(audio_data),
@@ -1072,7 +1073,7 @@ async def synthesize(request: Request):
                 tmp_path = tmp.name
                 
                 try:
-                    style_arg = "--style rules" if use_style else "--style off"
+                    style_arg = "--style rules" if style_mode != "off" else "--style off"
                     result = subprocess.run(
                         f'/usr/local/bin/test-rocky-tts "{text}" {style_arg} --output {tmp_path}',
                         shell=True,
