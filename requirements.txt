@@ -36,5 +36,6 @@ click==8.1.7
 typer==0.9.0
 
 # Optional: OpenAI integration
-# Note: 1.10.0 has proxy issues, use 1.3.0 for stability
-openai==1.3.0
+# Note: need >=1.55.3 for httpx 0.28+ compatibility (older versions pass a
+# removed 'proxies' kwarg to httpx.Client and crash on init)
+openai>=1.55.3,<2

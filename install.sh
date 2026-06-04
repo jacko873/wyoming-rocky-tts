@@ -404,7 +404,7 @@ done
 if [ "$INSTALL_OPENAI" = "true" ]; then
     echo ""
     print_info "Installing OpenAI integration..."
-    if ! su - "$ROCKY_USER" -c "'$VENV_DIR/bin/pip' install openai"; then
+    if ! su - "$ROCKY_USER" -c "'$VENV_DIR/bin/pip' install 'openai>=1.55.3,<2'"; then
         print_warning "OpenAI installation failed - OpenAI features will not be available"
     else
         print_status "OpenAI integration installed"
