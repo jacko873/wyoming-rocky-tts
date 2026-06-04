@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import asyncio
+import io
 import logging
 import argparse
 import os
@@ -8,6 +9,8 @@ import sys
 import time
 import tempfile
 import subprocess
+import wave
+from functools import partial
 from pathlib import Path
 from typing import Optional
 import threading
@@ -15,7 +18,9 @@ import threading
 import torch
 from TTS.api import TTS
 
-from wyoming.server import AsyncServer
+from wyoming.audio import AudioChunk, AudioStart, AudioStop
+from wyoming.event import Event
+from wyoming.server import AsyncServer, AsyncEventHandler
 from wyoming.info import Describe, Info, Attribution, TtsProgram, TtsVoice
 from wyoming.tts import Synthesize
 
@@ -148,83 +153,104 @@ class RockyTTS:
             import shutil
             shutil.copy2(input_path, output_path)
 
-class RockyWyomingHandler:
-    def __init__(self, tts: RockyTTS):
+class RockyWyomingHandler(AsyncEventHandler):
+    def __init__(self, wyoming_info: Info, tts: RockyTTS, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.wyoming_info_event = wyoming_info.event()
         self.tts = tts
-    
-    async def handle_event(self, event):
-        if isinstance(event, Describe):
-            info = Info(
-                tts=[
-                    TtsProgram(
-                        name="Rocky TTS",
-                        description="Rocky-style YourTTS voice",
-                        attribution=Attribution(
-                            name="Rocky TTS",
-                            url="https://github.com/jacko873/wyoming-rocky-tts"
-                        ),
-                        installed=True,
-                        voices=[
-                            TtsVoice(
-                                name="rocky",
-                                description="Rocky alien helper voice",
-                                attribution=Attribution(
-                                    name="Rocky",
-                                    url="https://github.com/jacko873/wyoming-rocky-tts"
-                                ),
-                                installed=True,
-                                languages=["en"]
-                            )
-                        ]
-                    )
-                ]
-            )
-            return info
-        
-        elif isinstance(event, Synthesize):
-            text = event.text.strip()
-            
+
+    async def handle_event(self, event: Event) -> bool:
+        if Describe.is_type(event.type):
+            await self.write_event(self.wyoming_info_event)
+            return True
+
+        if Synthesize.is_type(event.type):
+            synthesize = Synthesize.from_event(event)
+            text = synthesize.text.strip()
+
             if not text:
-                return b''
-            
+                return True
+
             try:
-                audio_data = self.tts.synthesize(text)
-                return audio_data
+                # Run blocking synthesis off the event loop
+                loop = asyncio.get_running_loop()
+                audio_data = await loop.run_in_executor(None, self.tts.synthesize, text)
             except Exception as e:
                 logger.error(f"Synthesis error: {e}")
-                return b''
-        
-        return None
+                return False
+
+            # Stream the WAV back as Wyoming audio events
+            with wave.open(io.BytesIO(audio_data), 'rb') as wav:
+                rate = wav.getframerate()
+                width = wav.getsampwidth()
+                channels = wav.getnchannels()
+
+                await self.write_event(
+                    AudioStart(rate=rate, width=width, channels=channels).event()
+                )
+
+                frames = wav.readframes(1024)
+                while frames:
+                    await self.write_event(
+                        AudioChunk(rate=rate, width=width, channels=channels, audio=frames).event()
+                    )
+                    frames = wav.readframes(1024)
+
+            await self.write_event(AudioStop().event())
+            return True
+
+        return True
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=Path, 
+    parser.add_argument('--config', type=Path,
                        default=Path.home() / '.rocky_tts' / 'config.yaml')
     parser.add_argument('--host', default=None)
     parser.add_argument('--port', type=int, default=None)
-    
+
     args = parser.parse_args()
-    
+
     config = Config.load(args.config)
-    
+
     if args.host:
         config.wyoming_host = args.host
     if args.port:
         config.wyoming_port = args.port
-    
+
     tts = RockyTTS(config)
-    handler = RockyWyomingHandler(tts)
-    
+
+    wyoming_info = Info(
+        tts=[
+            TtsProgram(
+                name="Rocky TTS",
+                description="Rocky-style YourTTS voice",
+                version="1.0",
+                attribution=Attribution(
+                    name="Rocky TTS",
+                    url="https://github.com/jacko873/wyoming-rocky-tts"
+                ),
+                installed=True,
+                voices=[
+                    TtsVoice(
+                        name="rocky",
+                        description="Rocky alien helper voice",
+                        version="1.0",
+                        attribution=Attribution(
+                            name="Rocky",
+                            url="https://github.com/jacko873/wyoming-rocky-tts"
+                        ),
+                        installed=True,
+                        languages=["en"]
+                    )
+                ]
+            )
+        ]
+    )
+
     logger.info(f"Starting Wyoming server on {config.wyoming_host}:{config.wyoming_port}")
     server = AsyncServer.from_uri(f"tcp://{config.wyoming_host}:{config.wyoming_port}")
-    
-    async def handler_factory(reader, writer):
-        async for event in AsyncServer.read_events(reader):
-            response = await handler.handle_event(event)
-            if response is not None:
-                await AsyncServer.write_event(response, writer)
-    
-    await server.run(handler_factory)
+
+    await server.run(partial(RockyWyomingHandler, wyoming_info, tts))
 
 if __name__ == '__main__':
     asyncio.run(main())
