@@ -82,7 +82,12 @@ class RockyTTS:
         
         cache_key = None
         if self.cache and use_cache:
-            cache_key = self.cache.get_cache_key(text, self.config.style_mode, self.voice_hash)
+            # Key on the normalized text that is actually synthesized (plus audio
+            # rate) so cached audio can never mismatch the styled text — e.g. a
+            # rules-mode fallback being replayed for an openai-mode request
+            cache_key = self.cache.get_cache_key(
+                normalized_text, self.config.style_mode, self.voice_hash, self.config.audio_rate
+            )
             cached = self.cache.get(cache_key)
             if cached and Path(cached.wav_path).exists():
                 logger.info(f"Cache hit for: {text[:50]}...")

@@ -50,8 +50,8 @@ class CacheManager:
         conn.close()
         logger.info(f"Cache database initialized at {self.db_path}")
     
-    def get_cache_key(self, text: str, style_mode: str, voice_hash: str) -> str:
-        key_data = f"{text}:{style_mode}:{voice_hash}"
+    def get_cache_key(self, text: str, style_mode: str, voice_hash: str, audio_rate: int = 0) -> str:
+        key_data = f"{text}:{style_mode}:{voice_hash}:{audio_rate}"
         return hashlib.sha256(key_data.encode()).hexdigest()
     
     def get(self, cache_key: str) -> Optional[CacheEntry]:
