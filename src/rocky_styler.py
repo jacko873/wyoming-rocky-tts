@@ -369,7 +369,7 @@ class RockyStyler:
                     {"role": "user", "content": text}
                 ],
                 temperature=0.7,
-                max_tokens=150
+                max_tokens=300
             )
             styled = response.choices[0].message.content.strip()
 
